@@ -1,0 +1,43 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/spotter_test_harness.dir/src/CategoryConfigFile.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/CategoryConfigFile.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/ColumnDefinitions.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/ColumnDefinitions.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/CsvUtils.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/CsvUtils.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/DataTab.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/DataTab.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/DisplaySettings.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/DisplaySettings.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/GenericGridTable.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/GenericGridTable.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/LatLonFormat.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/LatLonFormat.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/LogWindow.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/LogWindow.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/PositionHeights.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/PositionHeights.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/ShortcutsFile.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/ShortcutsFile.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/TimeZoneSetting.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/TimeZoneSetting.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/TrackRecorder.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/TrackRecorder.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/TrackingSettings.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/TrackingSettings.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/ocpn_plugin_defaults.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/ocpn_plugin_defaults.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/src/spotter_pi.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/src/spotter_pi.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/test_harness/main.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/test_harness/main.cpp.o.d"
+  "CMakeFiles/spotter_test_harness.dir/test_harness/ocpn_stubs.cpp.o"
+  "CMakeFiles/spotter_test_harness.dir/test_harness/ocpn_stubs.cpp.o.d"
+  "spotter_test_harness"
+  "spotter_test_harness.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/spotter_test_harness.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()
