@@ -901,6 +901,11 @@ What's already in place:
   Windows build dependencies (a prebuilt wxWidgets for MSVC, and
   OpenCPN's own `opencpn.lib` import library) from verified, real
   download URLs — see "Building on Windows" above.
+- **`.github/workflows/build-windows.yml`** builds a real, MSVC-compiled
+  `spotter_pi.dll` on GitHub's own free, hosted Windows runners on
+  every push (or on demand) — no Windows machine, no CI/Cloudsmith
+  account, and no catalog involvement needed to get a working DLL. See
+  "Installing and testing on Windows" below.
 
 What an actual submission to OpenCPN's plugin catalog
 (github.com/OpenCPN/plugins) would still need, beyond what's here:
@@ -949,11 +954,28 @@ machine as part of this project.
    [opencpn.org](https://opencpn.org/OpenCPN/info/downloadopencpn.html)
    and run it. Launch OpenCPN once after installing, just to confirm it
    starts normally, before touching this plugin at all.
-2. **Install the build dependencies and build the plugin** -- follow
-   "Building on Windows" above (Visual Studio, CMake, wxWidgets
-   matching OpenCPN's own build, `opencpn.lib`, then the `cmake`/
-   `cmake --build` commands). This produces
-   `build/Release/spotter_pi.dll`.
+2. **Get a built `spotter_pi.dll`**, without compiling anything on this
+   Windows laptop itself:
+   - Push this repository to GitHub (if it isn't already there) --
+     `.github/workflows/build-windows.yml` builds it automatically on
+     every push using GitHub's own free, hosted Windows runners (a
+     real MSVC/Visual Studio 2022 toolchain, matching what OpenCPN's
+     own Windows build uses -- no ABI risk the way a locally
+     cross-compiled DLL would carry). No CircleCI/AppVeyor/Cloudsmith
+     account needed anywhere in this -- it's entirely separate from,
+     and doesn't touch, the official plugin catalog.
+   - Once that workflow run finishes (a few minutes), open it from the
+     repo's "Actions" tab and download the `spotter_pi-windows-dll`
+     artifact from the bottom of its summary page -- that's
+     `spotter_pi.dll`, ready to use.
+   - It can also be triggered manually, without needing a new push --
+     from the same "Actions" tab, select "Build Windows DLL" in the
+     left sidebar, then "Run workflow".
+   - Prefer to build locally instead? Follow "Building on Windows"
+     above (Visual Studio, CMake, wxWidgets matching OpenCPN's own
+     build, `opencpn.lib`, then the `cmake`/`cmake --build` commands)
+     -- this produces the same `build/Release/spotter_pi.dll`, just
+     built on this machine instead of GitHub's.
 3. **Install the built plugin** by copying `spotter_pi.dll` into
    OpenCPN's user plugin folder, typically
    `%LOCALAPPDATA%\opencpn\plugins\` (create the folder first if it

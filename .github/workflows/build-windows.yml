@@ -1,0 +1,88 @@
+# Builds a real, MSVC-compiled spotter_pi.dll on a genuine Windows
+# runner -- no compiling on your own Windows machine, and nothing goes
+# near the official OpenCPN plugin catalog. This exists specifically
+# because a MinGW-cross-compiled DLL (buildable without any Windows
+# machine at all) is not a safe substitute for a real MSVC build here:
+# OpenCPN's own Windows .exe is MSVC-built, and loading a MinGW-compiled
+# plugin into it carries real C++ ABI risk. GitHub's windows-latest
+# runners come with Visual Studio 2022 pre-installed, which is exactly
+# the toolchain msvc/win_deps.bat and README.md's "Building on Windows"
+# section already target -- this workflow just runs those same,
+# already-documented steps on GitHub's infrastructure instead of yours.
+#
+# Runs on every push and can also be triggered manually from the
+# Actions tab (workflow_dispatch) without needing a push at all.
+#
+# The finished spotter_pi.dll is attached to the run as a downloadable
+# artifact (see the "Artifacts" section at the bottom of the run's
+# summary page) -- copy it into OpenCPN's plugin folder as described in
+# README.md's "Installing and testing on Windows" section. No Cloudsmith
+# account, no CircleCI/AppVeyor account, and no catalog submission is
+# involved anywhere in this workflow.
+#
+# Honest status: this workflow has been written carefully, based on
+# real, working commands (see msvc/win_deps.bat and README.md's
+# "Building on Windows" section for where those commands come from),
+# but has not actually been run as part of this project -- doing so
+# requires this repository to actually exist on GitHub and a workflow
+# run to be triggered there, neither of which was possible from within
+# this development environment. The first run or two may need small
+# fixes based on what its own log actually shows; that's expected for
+# a CI workflow's first real run anywhere, not a sign something here is
+# fundamentally wrong.
+
+name: Build Windows DLL
+
+"on":
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Ensure wget is available
+        # windows-2022 runners generally already have this, but installed
+        # explicitly here rather than assumed, so a change to GitHub's
+        # runner image doesn't silently break this workflow.
+        run: |
+          if (-not (Get-Command wget.exe -ErrorAction SilentlyContinue)) {
+            choco install -y wget
+          }
+        shell: pwsh
+
+      - name: Fetch wxWidgets and opencpn.lib
+        # Single source of truth with the documented local build steps --
+        # this is the exact same script README.md's "Building on
+        # Windows" section tells a human to run by hand.
+        working-directory: msvc
+        run: win_deps.bat
+        shell: cmd
+
+      - name: Configure
+        run: |
+          call cache\wx-config.bat
+          mkdir build
+          cd build
+          cmake -A Win32 -G "Visual Studio 17 2022" ^
+              -DwxWidgets_ROOT_DIR=%wxWidgets_ROOT_DIR% ^
+              -DwxWidgets_LIB_DIR=%wxWidgets_LIB_DIR% ^
+              -DOPENCPN_IMPORT_LIB=..\cache\opencpn.lib ^
+              ..
+        shell: cmd
+
+      - name: Build
+        run: cmake --build build --config Release
+        shell: cmd
+
+      - name: Upload spotter_pi.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotter_pi-windows-dll
+          path: build/Release/spotter_pi.dll
+          if-no-files-found: error
