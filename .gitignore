@@ -34,3 +34,6 @@ po/POTFILES.in.test
 temp
 tmp
 master.zip
+
+# Untracked files/notes
+notes.md
