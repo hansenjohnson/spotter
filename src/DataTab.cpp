@@ -370,6 +370,22 @@ public:
     }
   }
 
+  void BeginEdit(int row, int col, wxGrid* grid) override {
+    // Base class sets up the combo's initial text/selection correctly;
+    // it just doesn't show the dropdown list itself, so without this
+    // override the popup only ever opened via an explicit click on the
+    // small dropdown arrow -- reported as a real bug, since it meant a
+    // keyboard-only user (arrow keys to scroll through options, Enter
+    // to pick one -- both already supported once the popup is open, see
+    // OnComboKeyDown above) had no way to actually see or use the list
+    // without reaching for the mouse first. Explicitly popping it open
+    // here means it's already visible the moment a cell becomes active
+    // for editing, matching what "active" should mean for a dropdown
+    // cell -- scrollable and selectable immediately, mouse optional.
+    wxGridCellChoiceEditor::BeginEdit(row, col, grid);
+    if (m_combo) m_combo->Popup();
+  }
+
   void OnComboKeyDown(wxKeyEvent& evt) {
     if (evt.GetKeyCode() == WXK_RETURN ||
         evt.GetKeyCode() == WXK_NUMPAD_ENTER || evt.GetKeyCode() == WXK_TAB) {
@@ -1004,6 +1020,21 @@ void DataTab::SetGridFontSize(int pointSize) {
 void DataTab::ReapplyRowHeights() {
   if (!m_grid) return;
   m_grid->AutoSizeRows();
+  // A small safety margin beyond whatever AutoSizeRows() itself
+  // calculated -- a real, reported bug: rows came out too short to
+  // comfortably fit their text on Windows specifically (fixable by
+  // hand via drag-resize, confirming it's a sizing-calculation gap,
+  // not a font/rendering problem). AutoSizeRows()'s calculation
+  // ultimately depends on the platform's own font-metric APIs (GDI on
+  // Windows vs. Core Text/Pango elsewhere), which are known to differ
+  // in how tightly they report a line's height -- rather than trying
+  // to second-guess or patch wxWidgets' own internal calculation, this
+  // just pads whatever it comes up with by a few pixels, which can
+  // only help against undersizing and costs nothing meaningful in the
+  // rare case a platform's calculation was already exactly right.
+  for (int row = 0; row < m_grid->GetNumberRows(); row++) {
+    m_grid->SetRowSize(row, m_grid->GetRowSize(row) + 6);
+  }
   m_grid->ForceRefresh();
 }
 

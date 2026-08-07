@@ -44,7 +44,7 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Check out this repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Ensure wget is available
         # windows-2022 runners generally already have this, but installed
@@ -94,7 +94,7 @@ jobs:
         shell: cmd
 
       - name: Upload spotter_pi.dll
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: spotter_pi-windows-dll
           path: build/Release/spotter_pi.dll
