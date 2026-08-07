@@ -116,7 +116,19 @@ if not exist "%SCRIPTDIR%..\cache\opencpn.lib" (
   echo opencpn.lib already present in cache, skipping download.
 )
 
+:: libs/api-18/CMakeLists.txt (the vendored OpenCPN API headers,
+:: unrelated to this project's own -DOPENCPN_IMPORT_LIB mechanism used
+:: above) has its own, separate, hardcoded expectation for MSVC builds:
+:: it links against libs/api-18/msvc-wx32/opencpn.lib directly,
+:: regardless of what's passed via -DOPENCPN_IMPORT_LIB. Both need the
+:: file to actually link successfully, so it's copied to both
+:: locations here rather than only fetched once.
+if not exist "%SCRIPTDIR%..\libs\api-18\msvc-wx32" mkdir "%SCRIPTDIR%..\libs\api-18\msvc-wx32"
+copy /y "%SCRIPTDIR%..\cache\opencpn.lib" "%SCRIPTDIR%..\libs\api-18\msvc-wx32\opencpn.lib" >nul
+
 echo.
 echo Done. wxWidgets and opencpn.lib are in %SCRIPTDIR%..\cache\
+echo (opencpn.lib is also copied to libs\api-18\msvc-wx32\, which the
+echo vendored API headers there separately expect it at.)
 echo Run "call ..\cache\wx-config.bat" before invoking cmake to pick up
 echo wxWidgets_ROOT_DIR and wxWidgets_LIB_DIR.

@@ -10,6 +10,13 @@ cmake-build*/
 # wxWidgets + opencpn.lib cache that has no business being committed.
 cache/
 
+# Also written by win_deps.bat -- libs/api-18/CMakeLists.txt (the
+# vendored OpenCPN API headers) separately, independently expects
+# opencpn.lib at this exact path for MSVC builds, so win_deps.bat
+# copies it here too; same reasoning as cache/ above for not
+# committing it.
+libs/api-18/msvc-wx32/
+
 # Editor/IDE noise
 .vscode/
 .idea/
@@ -19,6 +26,7 @@ cache/
 
 # OS noise
 .DS_Store
+Thumbs.db
 
 # From the real testplugin_pi's own .gitignore, kept for consistency
 # where it still applies to this project.
