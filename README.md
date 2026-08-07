@@ -768,7 +768,7 @@ trackline -- confirming old files are preserved and the trackline is
 genuinely reset, not just re-pointed -- export, and reloads-from-disk to
 confirm persistence -- including the active survey prefix and
 vessel/survey name -- survives a restart) and prints PASS/FAIL for each
-of its 243 checks — good for a quick sanity check after making changes:
+of its 242 checks — good for a quick sanity check after making changes:
 
 ```bash
 ./build/spotter_test_harness --selftest

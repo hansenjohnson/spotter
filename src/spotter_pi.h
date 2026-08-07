@@ -1,6 +1,17 @@
 #ifndef SPOTTER_PI_H
 #define SPOTTER_PI_H
 
+// wx/wx.h must come before ocpn_plugin.h: that vendored header's
+// DECL_EXP macro (which makes create_pi/destroy_pi actually exported
+// from the plugin DLL on Windows, via __declspec(dllexport)) depends
+// on __WXMSW__, which wxWidgets' own headers define -- not us. With
+// ocpn_plugin.h included first, __WXMSW__ isn't defined yet when that
+// macro's platform check runs, so DECL_EXP silently expands to
+// nothing even on a real Windows build. Confirmed as the exact,
+// direct cause of a real failure loading the built DLL in OpenCPN on
+// Windows ("Couldn't find symbol 'create_pi'") -- not a hypothetical
+// concern.
+#include <wx/wx.h>
 #include "ocpn_plugin.h"
 #include "TrackRecorder.h"
 #include "DisplaySettings.h"

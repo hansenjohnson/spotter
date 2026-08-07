@@ -18,12 +18,6 @@ std::vector<std::vector<wxString>> ReadAll(const wxString& path);
 bool WriteAll(const wxString& path, const std::vector<wxString>& header,
               const std::vector<std::vector<wxString>>& rows);
 
-// Appends a single line (already-composed, e.g.
-// "2026-01-01T00:00:00Z,GPGGA,...") to `path`, creating the file if needed.
-// Used for the raw NMEA log, which is append-only and can grow large, so we
-// don't want to rewrite it whole.
-bool AppendLine(const wxString& path, const wxString& line);
-
 // Quotes/escapes a single field for CSV output.
 wxString EscapeField(const wxString& field);
 

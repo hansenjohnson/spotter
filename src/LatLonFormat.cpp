@@ -16,34 +16,6 @@ Format g_current = Format::DegreesDecimalMinutes;  // default, per spec
 Format Get() { return g_current; }
 void Set(Format format) { g_current = format; }
 
-Format CycleToNext() {
-  switch (g_current) {
-    case Format::DegreesDecimalMinutes:
-      g_current = Format::DecimalDegrees;
-      break;
-    case Format::DecimalDegrees:
-      g_current = Format::DegreesMinutesSeconds;
-      break;
-    case Format::DegreesMinutesSeconds:
-    default:
-      g_current = Format::DegreesDecimalMinutes;
-      break;
-  }
-  return g_current;
-}
-
-wxString CurrentLabel() {
-  switch (g_current) {
-    case Format::DecimalDegrees:
-      return "Lat/Lon: DD";
-    case Format::DegreesMinutesSeconds:
-      return "Lat/Lon: DMS";
-    case Format::DegreesDecimalMinutes:
-    default:
-      return "Lat/Lon: DDM";
-  }
-}
-
 void LoadFromFile(const wxString& path) {
   if (!wxFileExists(path)) return;
   wxFile f(path);

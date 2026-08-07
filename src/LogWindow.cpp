@@ -2340,24 +2340,10 @@ void LogWindow::BuildTabs() {
       }
     };
   }
-
-  // Marker shape/color pickers for Sightings and Events moved to the
-  // Settings tab's Map section (see BuildMarkerControlsRow() calls in
-  // BuildSettingsTab()), next to each tab's map-label picker, per
-  // direct request -- previously lived on each tab's own toolbar via
-  // DataTab::SetupMarkerControls() (removed). Surfacings is left as-is
-  // below since that tab is currently disabled and not part of this
-  // change.
-  auto markerChanged = [this]() { m_plugin->RequestOverlayRedraw(); };
-  if (m_surfacing) {
-    m_surfacing->SetupMarkerControls(m_plugin->GetDisplaySettings(),
-                                     wxColour(40, 160, 90), "Triangle",
-                                     markerChanged);
-  }
 }
-void LogWindow::NotifyVesselFix(double lat, double lon, double cog,
+void LogWindow::NotifyVesselFix(double lat, double lon,
                                 const wxDateTime& utc) {
-  for (auto& tab : m_tabs) tab->SetVesselFix(lat, lon, cog, utc);
+  for (auto& tab : m_tabs) tab->SetVesselFix(lat, lon, utc);
 }
 
 namespace {

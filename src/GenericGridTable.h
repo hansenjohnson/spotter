@@ -100,12 +100,10 @@ public:
   bool DeleteRows(size_t pos, size_t numRows = 1) override;
 
   // Direct (non-UI) access, used for load/save/derived-column logic.
-  int NumDataCols() const { return static_cast<int>(m_cols.size()); }
   int NumVisibleCols() const { return m_numVisible; }
   wxString RawGet(int row, int dataCol) const;
   void RawSet(int row, int dataCol, const wxString& value);
   int AppendDataRow(const std::vector<wxString>& values);  // returns row idx
-  void RemoveDataRow(int row);
   int FindColByName(const wxString& name) const;
 
   // AppendDataRow() (unlike AppendRows()) doesn't notify the attached
@@ -121,7 +119,6 @@ public:
   void NotifyGridRowCountChanged(int oldRowCount);
 
   std::vector<std::vector<wxString>>& Data() { return m_data; }
-  const std::vector<ColumnDef>& Cols() const { return m_cols; }
 
   // Called after any SetValue / AppendRows / DeleteRows that originates
   // from the grid UI (not from bulk loading at startup).

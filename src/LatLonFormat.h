@@ -27,14 +27,6 @@ enum class Format {
 Format Get();
 void Set(Format format);
 
-// Advances to the next format in the cycle (wrapping around), and
-// returns the new format -- used by the format-toggle button.
-Format CycleToNext();
-
-// A short label for the *current* format, suitable for a toggle
-// button's caption (e.g. "Lat/Lon: DDM").
-wxString CurrentLabel();
-
 // Loads/saves the current format as a single word in a plain text file
 // (latlon_format.txt) in the plugin's data directory.
 void LoadFromFile(const wxString& path);

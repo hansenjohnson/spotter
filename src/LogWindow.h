@@ -96,8 +96,7 @@ class LogWindow : public wxFrame {
 public:
   LogWindow(wxWindow* parent, SpotterPlugin* plugin, const wxString& dataDir);
 
-  void NotifyVesselFix(double lat, double lon, double cog,
-                       const wxDateTime& utc);
+  void NotifyVesselFix(double lat, double lon, const wxDateTime& utc);
 
   DataTab* Sightings() const { return m_sightings; }
   // Environmental conditions + Effort ON/OFF status, merged into one

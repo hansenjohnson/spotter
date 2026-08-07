@@ -8,6 +8,9 @@
 // This file is ONLY used by the test harness executable. It is never
 // linked into the real spotter_pi plugin library.
 
+// wx/wx.h before ocpn_plugin.h: see spotter_pi.h for why (its DECL_EXP
+// macro depends on __WXMSW__, which wxWidgets' own headers define).
+#include <wx/wx.h>
 #include "ocpn_plugin.h"
 #include <wx/stdpaths.h>
 #include <wx/filename.h>

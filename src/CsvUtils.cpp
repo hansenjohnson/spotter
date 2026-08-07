@@ -125,22 +125,4 @@ bool WriteAll(const wxString& path, const std::vector<wxString>& header,
   return wxRenameFile(tmpPath, path, true);
 }
 
-bool AppendLine(const wxString& path, const wxString& line) {
-  wxFileName fn(path);
-  if (!wxDir::Exists(fn.GetPath())) {
-    wxFileName::Mkdir(fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
-  }
-  wxFile file;
-  bool ok;
-  if (wxFileExists(path)) {
-    ok = file.Open(path, wxFile::write_append);
-  } else {
-    ok = file.Create(path, false);
-  }
-  if (!ok) return false;
-  file.Write(line + "\n");
-  file.Close();
-  return true;
-}
-
 }  // namespace CsvUtils

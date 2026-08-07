@@ -378,7 +378,7 @@ void SpotterPlugin::SetPositionFix(PlugIn_Position_Fix& pfix) {
   }
 
   if (m_logWindow)
-    m_logWindow->NotifyVesselFix(m_lastLat, m_lastLon, pfix.Cog, m_lastFixTime);
+    m_logWindow->NotifyVesselFix(m_lastLat, m_lastLon, m_lastFixTime);
   if (m_trackRecorder) {
     wxString effortStatus =
         m_logWindow ? m_logWindow->CurrentEffortStatus() : wxString();

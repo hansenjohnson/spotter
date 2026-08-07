@@ -216,10 +216,6 @@ private:
       wxString dmsLonNeg = LatLonFormat::FormatValue(-70.05, false);
       check(dmsLonNeg.EndsWith("W"), "Negative longitude formats as W");
 
-      LatLonFormat::Format next = LatLonFormat::CycleToNext();
-      check(next == LatLonFormat::Format::DegreesDecimalMinutes,
-            "CycleToNext() wraps DMS back around to DDM");
-
       LatLonFormat::Set(LatLonFormat::Format::DegreesDecimalMinutes);  // reset
 
       // --- ParseValue: what actually makes editing in the current

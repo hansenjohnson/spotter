@@ -171,7 +171,7 @@ public:
   // the sighting-position calculation -- the plugin API doesn't expose
   // a dedicated heading source, and COG is the standard substitute,
   // though it can diverge from true heading with current/leeway drift.
-  void SetVesselFix(double lat, double lon, double cog, const wxDateTime& utc);
+  void SetVesselFix(double lat, double lon, const wxDateTime& utc);
 
   // All rows with Chart=checked, positioned per overlayLatCol/overlayLonCol
   // (falling back to latCol/lonCol). Used by the plugin's RenderOverlay.
@@ -202,10 +202,6 @@ public:
   // auto-fill logic has already run -- used by LogWindow to auto-create
   // a linked Surfacings row whenever a Sightings row is added.
   std::function<void(int row)> on_row_added_external;
-
-  // The most recent GPS fix's course over ground, used as a vessel-
-  // heading proxy for DegRel/ClockRel bearing conversions.
-  double GetVesselCog() const { return m_fixCog; }
 
   // Current observer eye height in feet, looked up from the Effort
   // tab's Position column (see LogWindow's polling in OnStatusTick) --
@@ -290,17 +286,6 @@ public:
   // existing CSV).
   void ReapplyRowHeights();
 
-  // Adds a marker-shape dropdown and a color-swatch button to this
-  // tab's toolbar, for choosing how its charted rows are drawn on the
-  // chart overlay (see DisplaySettings::MarkerShape/MarkerColor). A
-  // no-op if this tab has no Chart column (nothing to plot). `settings`
-  // must outlive this DataTab (owned by the plugin, same lifetime as
-  // everything else here).
-  void SetupMarkerControls(class DisplaySettings* settings,
-                           const wxColour& defaultColor,
-                           const wxString& defaultShape,
-                           std::function<void()> onChanged);
-
   // Reminder timer, driven entirely from outside (LogWindow's status
   // bar) now -- there's no in-tab UI for it any more. No-ops / returns
   // defaults if this tab didn't enable one.
@@ -346,7 +331,6 @@ private:
 
   bool m_haveFix;
   double m_fixLat, m_fixLon;
-  double m_fixCog = 0.0;
   // NAN (not a reasonable fallback number) before the Effort tab's
   // Position is ever set -- so the "reticles" DistUnit's calculation
   // also produces NAN in that case, rather than silently using some

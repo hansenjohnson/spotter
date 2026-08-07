@@ -7,6 +7,123 @@ on actually using and building the plugin. Entries are in roughly
 chronological order (oldest changes near the top, most recent near the
 bottom), each written at the time that change was made.
 
+## Real Windows install attempt: DLL built but OpenCPN couldn't load it -- create_pi wasn't exported
+
+First real test of the actual built `spotter_pi.dll` inside a real
+OpenCPN installation on Windows, after several rounds of getting the
+Windows CI build itself working. The DLL was correctly placed in
+OpenCPN's plugin folder and detected as a wxWidgets-compatible
+candidate, but failed to load:
+
+```
+ERROR dlmsw.cpp:167 Couldn't find symbol 'create_pi' in a dynamic
+library (error 127: The specified procedure could not be found.)
+```
+
+Root cause, confirmed by reading the actual vendored header rather
+than guessing: every OpenCPN plugin must export `create_pi`/
+`destroy_pi` (its factory functions) by name, via `DECL_EXP` --
+`libs/api-18/ocpn_plugin.h`'s own macro for
+`__declspec(dllexport)` on Windows. That macro's platform check is:
+
+```cpp
+#if defined(__WXMSW__) || defined(__CYGWIN__)
+#define DECL_EXP __declspec(dllexport)
+...
+```
+
+`__WXMSW__` is defined by wxWidgets' own headers, not by the compiler
+or by us -- and `spotter_pi.h` (this project's own file) included
+`ocpn_plugin.h` as its very first line, before any wxWidgets header
+anywhere in the chain. At the point `ocpn_plugin.h`'s platform check
+ran, `__WXMSW__` genuinely wasn't defined yet, even on a real Windows/
+MSVC build, so `DECL_EXP` silently fell through to its final, empty
+`#else` case -- no export attribute at all. `create_pi`/`destroy_pi`
+compiled fine (that's just a function definition) but were never
+actually visible to OpenCPN's dynamic loader.
+
+Fixed by adding `#include <wx/wx.h>` immediately before
+`#include "ocpn_plugin.h"` in `spotter_pi.h` -- the file that actually
+defines `create_pi`/`destroy_pi` (in `spotter_pi.cpp`, which includes
+`spotter_pi.h` first). Also fixed the same include-order issue in
+`ocpn_plugin_defaults.cpp` and `test_harness/ocpn_stubs.cpp` for
+consistency, even though neither is functionally required for this
+specific bug: `ocpn_plugin_defaults.cpp` only defines method *bodies*
+for a class already declared elsewhere (virtual dispatch within the
+same DLL doesn't need `dllexport` to work), and the test harness stubs
+file isn't even built on Windows right now. `DataTab.h` and
+`LogWindow.h` were already safe -- both already include `<wx/wx.h>`
+as their own first line, before anything else. `TrackRecorder.cpp`
+was already safe too, since it includes its own header (which already
+starts with `<wx/wx.h>`) before separately including `ocpn_plugin.h`
+directly.
+
+Verified: confirmed via `nm -D` that `create_pi`/`destroy_pi` are now
+exported symbols in the built library (Linux `.so`, where this
+specific bug doesn't reproduce -- GCC's visibility attribute doesn't
+depend on any wx-defined macro the way MSVC's `__declspec(dllexport)`
+path does here, so this only confirms the fix is structurally sound,
+not that it resolves the original Windows symptom). Rebuilt and reran
+the full test suite locally (242/242, unaffected). The actual fix is
+unverified until the next real Windows build is installed into a real
+OpenCPN and confirmed to load without the `create_pi` error.
+
+## Code review: removing deprecated/unused functionality
+
+Per direct request, ahead of starting beta distribution. Used
+`cppcheck --enable=unusedFunction` across `src/` as a starting point,
+then manually verified every flagged item against the real codebase
+before touching anything -- cppcheck's cross-file call analysis isn't
+fully reliable here (it flagged several genuinely-used functions called
+only from a different `.cpp` file than their own, e.g.
+`TryStartEditingCurrentCell`, `RefreshDisplay`, `WatchColumnValue`, all
+called from `LogWindow.cpp`) and it can't see virtual-override call
+sites at all (everything in `ocpn_plugin_defaults.cpp`, wxGridTableBase
+overrides in `GenericGridTable.cpp`, wxGridCellEditor overrides in
+`DataTab.cpp`, `wxApp::OnInit()` in the test harness -- all correctly
+still in use, just invoked by a framework cppcheck can't trace into).
+
+**Confirmed genuinely dead, removed:**
+- `CsvUtils::AppendLine` -- zero call sites; looks like a leftover from
+  a raw-NMEA-log feature that was never actually built.
+- `LatLonFormat::CycleToNext` and `CurrentLabel` -- both dead in the
+  real app since an earlier round changed the format selector from a
+  cycling button to a dropdown; `CycleToNext` was still being exercised
+  by a test, so that test was removed too rather than keep testing dead
+  code.
+- `GenericGridTable::NumDataCols`, `Cols`, `RemoveDataRow` -- all zero
+  call sites.
+- `DataTab::GetVesselCog` and its backing member `m_fixCog` -- write-
+  only; `SetVesselFix()` stored a vessel course-over-ground value
+  nothing ever read. Traced the `cog` parameter through its entire call
+  chain (`SpotterPlugin`'s GPS fix handler -> `LogWindow::
+  NotifyVesselFix` -> `DataTab::SetVesselFix`) and removed it from all
+  three, rather than leave a parameter that's accepted and silently
+  dropped (which would also have triggered a real
+  `-Wunused-parameter` warning once the one line using it was gone).
+- `DataTab::SetupMarkerControls` -- required actually tracing the call
+  site, not just the function itself: its only caller was guarded by
+  `if (m_surfacing)`, and `m_surfacing` is *only ever assigned* inside
+  the `#if 0` block that disables the Surfacings tab (confirmed via
+  `grep` -- the sole assignment site is inside that block), so the
+  condition is permanently false and the call was unreachable. This
+  function was already known to be superseded -- a comment elsewhere in
+  `LogWindow.cpp` already described it as "(removed)" when explaining
+  where the current `BuildMarkerControlsRow()` came from -- just never
+  actually deleted.
+
+**Explicitly not touched:** the Surfacings tab itself (and its `#if 0`
+block) -- kept intact and disabled, per an earlier, deliberate decision
+pending further thought about how it should relate to Sightings data;
+this is a different thing from genuinely dead code, and removing it
+wasn't part of this request.
+
+Verified: full rebuild with `-Wall -Wextra` (zero warnings in this
+project's own code, same as before), full test suite (242/242 -- 243
+minus the one test that only existed to exercise the now-removed
+`CycleToNext()`), and a fresh-unzip rebuild+retest to confirm the
+packaged state matches.
+
 ## Fourth real CI run: _CONSOLE didn't fix it; decided to just skip the test harness on Windows
 
 Direct follow-up to the previous entry. A second real CI run, with

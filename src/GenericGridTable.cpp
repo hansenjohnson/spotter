@@ -150,11 +150,6 @@ void GenericGridTable::NotifyGridRowCountChanged(int oldRowCount) {
   }
 }
 
-void GenericGridTable::RemoveDataRow(int row) {
-  if (row < 0 || row >= static_cast<int>(m_data.size())) return;
-  m_data.erase(m_data.begin() + row);
-}
-
 int GenericGridTable::FindColByName(const wxString& name) const {
   for (size_t i = 0; i < m_cols.size(); i++) {
     if (m_cols[i].name == name) return static_cast<int>(i);

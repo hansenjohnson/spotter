@@ -20,6 +20,9 @@
 // the plugin working regardless of what any given OpenCPN build happens
 // to export.
 
+// wx/wx.h before ocpn_plugin.h: see spotter_pi.h for why (its DECL_EXP
+// macro depends on __WXMSW__, which wxWidgets' own headers define).
+#include <wx/wx.h>
 #include "ocpn_plugin.h"
 
 // ---- opencpn_plugin (base) --------------------------------------------

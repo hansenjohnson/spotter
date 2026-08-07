@@ -968,60 +968,6 @@ void DataTab::RefreshDisplay() {
   if (m_grid) m_grid->ForceRefresh();
 }
 
-void DataTab::SetupMarkerControls(DisplaySettings* settings,
-                                  const wxColour& defaultColor,
-                                  const wxString& defaultShape,
-                                  std::function<void()> onChanged) {
-  if (m_cfg.chartCol < 0 || !m_toolbarSizer) return;  // nothing to plot
-
-  wxString tabKey = m_cfg.title;
-  wxString currentShape =
-      settings ? settings->MarkerShape(tabKey, defaultShape) : defaultShape;
-  wxColour currentColor =
-      settings ? settings->MarkerColor(tabKey, defaultColor) : defaultColor;
-
-  m_toolbarSizer->Add(new wxStaticText(m_panel, wxID_ANY, "Marker:"), 0,
-                      wxALIGN_CENTER_VERTICAL | wxLEFT, 8);
-
-  wxArrayString shapeOptions;
-  shapeOptions.Add("Diamond");
-  shapeOptions.Add("Square");
-  shapeOptions.Add("Triangle");
-  shapeOptions.Add("Circle");
-  shapeOptions.Add("Star");
-  wxChoice* shapeChoice = new wxChoice(m_panel, wxID_ANY, wxDefaultPosition,
-                                       wxDefaultSize, shapeOptions);
-  int sel = shapeOptions.Index(currentShape);
-  shapeChoice->SetSelection(sel == wxNOT_FOUND ? 0 : sel);
-  shapeChoice->Bind(wxEVT_CHOICE, [settings, tabKey, shapeChoice,
-                                   onChanged](wxCommandEvent&) {
-    if (settings) {
-      settings->SetMarkerShape(tabKey, shapeChoice->GetStringSelection());
-    }
-    if (onChanged) onChanged();
-  });
-  m_toolbarSizer->Add(shapeChoice, 0, wxALIGN_CENTER_VERTICAL | wxALL, 4);
-
-  wxButton* colorBtn = new wxButton(m_panel, wxID_ANY, "Color",
-                                    wxDefaultPosition, wxSize(50, -1));
-  colorBtn->SetBackgroundColour(currentColor);
-  colorBtn->Bind(wxEVT_BUTTON, [this, settings, tabKey, colorBtn,
-                                onChanged](wxCommandEvent&) {
-    wxColourData data;
-    data.SetColour(colorBtn->GetBackgroundColour());
-    wxColourDialog dlg(m_panel, &data);
-    if (dlg.ShowModal() != wxID_OK) return;
-    wxColour chosen = dlg.GetColourData().GetColour();
-    colorBtn->SetBackgroundColour(chosen);
-    colorBtn->Refresh();
-    if (settings) settings->SetMarkerColor(tabKey, chosen);
-    if (onChanged) onChanged();
-  });
-  m_toolbarSizer->Add(colorBtn, 0, wxALIGN_CENTER_VERTICAL | wxALL, 4);
-
-  m_panel->Layout();
-}
-
 void DataTab::SetGridFontSize(int pointSize) {
   if (!m_grid || pointSize <= 0) return;
   wxFont cellFont = m_grid->GetDefaultCellFont();
@@ -1070,12 +1016,10 @@ std::vector<int> DataTab::GetColumnWidths() const {
   return widths;
 }
 
-void DataTab::SetVesselFix(double lat, double lon, double cog,
-                           const wxDateTime& utc) {
+void DataTab::SetVesselFix(double lat, double lon, const wxDateTime& utc) {
   m_haveFix = true;
   m_fixLat = lat;
   m_fixLon = lon;
-  m_fixCog = cog;
   m_fixTime = utc;
 }
 
