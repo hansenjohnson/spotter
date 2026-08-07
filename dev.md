@@ -7,6 +7,173 @@ on actually using and building the plugin. Entries are in roughly
 chronological order (oldest changes near the top, most recent near the
 bottom), each written at the time that change was made.
 
+## Fourth real CI run: _CONSOLE didn't fix it; decided to just skip the test harness on Windows
+
+Direct follow-up to the previous entry. A second real CI run, with
+`_CONSOLE` defined for `spotter_test_harness` as attempted there, hit
+the *exact same* linker error:
+
+```
+MSVCRT.lib(exe_main.obj) : error LNK2019: unresolved external symbol _main
+```
+
+So `_CONSOLE` alone isn't sufficient here -- whatever wxWidgets'
+actual, current logic for choosing between `main()`/`WinMain()` is (a
+newer wxWidgets version, or additional conditions beyond that one
+macro), it didn't resolve this. Rather than keep spending CI runs
+guessing at an obscure entry-point quirk for a target that's purely a
+development convenience -- `spotter_test_harness` is never shipped,
+never referenced by OpenCPN, and has no bearing on whether the actual
+plugin works -- asked directly whether it could just be skipped on
+Windows, and yes: it's been extensively verified on macOS/Linux
+throughout this entire project (243 checks, continuously run), so
+losing Windows coverage for it specifically costs nothing that matters
+for actually using the plugin.
+
+Changed `.github/workflows/build-windows.yml`'s Build step to
+`cmake --build build --config Release --target spotter_pi`
+(previously building the default target set, which included
+`spotter_test_harness`) -- explicitly scoped to just the real
+deliverable. Made the same change to README.md's local Windows build
+instructions, since anyone building by hand would hit the identical
+issue otherwise. Left the `_CONSOLE` define in `CMakeLists.txt` in
+place (harmless, and it's possible it's a real part of a fuller fix
+someone could build on later) but corrected its comment to honestly
+reflect that it did not, on its own, resolve the problem -- rather
+than leave a confidently-worded comment claiming a fix that a real CI
+run had already contradicted.
+
+Verified: rebuilt and reran the full test suite locally (243/243,
+unaffected -- this only touched the Windows-specific workflow file and
+documentation, not any C++ source, and the test harness still builds
+and runs normally as part of the regular macOS/Linux build/test cycle
+this project has used throughout). The next CI run should build only
+`spotter_pi.dll` and, having now built successfully twice in a row
+before hitting the (now bypassed) test-harness-only failure, should
+succeed cleanly.
+
+## Third real CI run: spotter_pi.dll actually built; test harness hit a Windows entry-point mismatch
+
+Milestone: **`spotter_pi.dll` -- the actual deliverable -- built
+successfully** (`spotter_pi.vcxproj -> D:\a\spotter\spotter\build\Release\spotter_pi.dll`).
+The `opencpn.lib` fix from the previous entry resolved linking
+completely for the real plugin target.
+
+The only remaining failure was in `spotter_test_harness` (a dev-only
+tool, never shipped to users):
+
+```
+MSVCRT.lib(exe_main.obj) : error LNK2019: unresolved external symbol _main
+```
+
+Root cause: `test_harness/main.cpp` uses wxWidgets' own
+`wxIMPLEMENT_APP(TestApp)` macro for its entry point (not a hand-written
+`main()`), which works fine on macOS/Linux but, on MSVC specifically,
+generates a `WinMain()` (Windows/GUI subsystem) entry point by default.
+This target links as a Console-subsystem executable instead --
+deliberately, since test output needs to actually print to stdout/the
+CI log, not disappear into a windowless GUI process -- and the Console
+subsystem's CRT startup code expects `main()`, not `WinMain()`. Fixed
+by defining `_CONSOLE` for this target on MSVC specifically
+(`if(MSVC) target_compile_definitions(spotter_test_harness PRIVATE
+_CONSOLE) endif()`) -- wxWidgets' own long-documented convention
+(predating CMake, from when wxWidgets projects were hand-configured
+Visual Studio projects that defined this automatically) for getting
+`wxIMPLEMENT_APP()` to generate `main()` instead.
+
+Verified: rebuilt and reran the full test suite locally (243/243,
+unaffected, since the `if(MSVC)` guard makes this a no-op everywhere
+else). The actual MSVC entry-point resolution is unverified until the
+next real CI run -- `_CONSOLE` is wxWidgets' documented mechanism for
+this, but "documented" and "confirmed working here" are different
+things without an actual MSVC environment to check it in directly.
+
+## Second real CI run: every source file compiled; link failed on a duplicate, hardcoded opencpn.lib path
+
+Strong progress from the previous run's fix -- the stale-`build/`
+problem is gone (no CMakeCache mismatch this time), and CMake correctly
+found MSVC and wxWidgets 3.2.1 via the `-D` flags `win_deps.bat` sets
+up. Every one of this plugin's source files compiled successfully. The
+only failure was at the link step:
+
+```
+LINK : fatal error LNK1181: cannot open input file
+'D:\a\spotter\spotter\libs\api-18\msvc-wx32\opencpn.lib'
+```
+
+Root cause: `libs/api-18/CMakeLists.txt` (the vendored OpenCPN API
+headers this project bundles) has its own, completely separate,
+hardcoded MSVC link requirement --
+
+```cmake
+if (WIN32 AND MSVC)
+  target_link_libraries(OCPN_API_WX32 INTERFACE
+      "${CMAKE_CURRENT_SOURCE_DIR}/msvc-wx32/opencpn.lib")
+```
+
+-- entirely independent of this project's own `-DOPENCPN_IMPORT_LIB`
+mechanism (`CMakeLists.txt`'s own, correct `if(OPENCPN_IMPORT_LIB)
+target_link_libraries(...)` block). Both get pulled into the final
+link; `win_deps.bat` was only ever placing the downloaded file at
+`cache/opencpn.lib`, which satisfies the first mechanism but not this
+second, independent one -- nothing had ever placed a file at the exact
+path this vendored library hardcodes.
+
+Fixed by having `win_deps.bat` copy the downloaded `opencpn.lib` to
+*both* locations (`cache/opencpn.lib` and
+`libs/api-18/msvc-wx32/opencpn.lib`) rather than changing either
+CMake mechanism itself -- lower-risk than modifying vendored
+third-party code, and this happens to be that vendored library's own,
+pre-existing, intended convention (this file structure was itself
+originally vendored from the same broader OpenCPN plugin-library
+ecosystem `testplugin_pi` belongs to). Added
+`libs/api-18/msvc-wx32/` to `.gitignore` too, for the same reason
+`cache/` is already there -- a downloaded, per-machine, regeneratable
+artifact with no business being committed.
+
+Verified: rebuilt and reran the full test suite locally (243/243,
+unaffected, since this only touched `win_deps.bat` and `.gitignore`,
+not any C++ source). The actual MSVC link step itself is unverified
+until the next real CI run.
+
+## First real CI run: missing .gitignore let a stale build/ directory break the Windows build
+
+The Windows workflow's first actual run (after a live GitHub Actions
+outage cleared) got much further than expected -- `win_deps.bat` ran
+correctly on a real runner and successfully downloaded wxWidgets 3.2.1
+and `opencpn.lib`, confirming that part of the setup genuinely works,
+not just in theory. The actual failure was unrelated to any of that:
+
+```
+CMake Error: The current CMakeCache.txt directory
+D:/a/spotter/spotter/build/CMakeCache.txt is different than the
+directory /Users/hjohnson/Projects/spotter_pi/build where
+CMakeCache.txt was created.
+```
+
+Root cause: this project never had a `.gitignore`, so a `build/`
+directory from a local build on a Mac got swept into the initial `git
+add .` and committed. A stale `CMakeCache.txt` hardcodes the absolute
+path it was configured in; checking that same `build/` folder out onto
+a Windows CI runner, with a completely different path, is exactly the
+scenario CMake refuses to silently continue with.
+
+Fixed two ways: added a proper `.gitignore` (the real `testplugin_pi`
+template's own `.gitignore` doesn't cover this either -- it's minimal
+and doesn't exclude `build/` at all, so it wasn't something to copy
+verbatim; this one is specific to this project's actual needs,
+covering `build/`, and `cache/` from `win_deps.bat`'s own output).
+Also made the workflow's Configure step self-healing (`if exist build
+rmdir /s /q build` before creating a fresh one) as cheap insurance,
+independent of the `.gitignore` fix, so a leftover `build/` directory
+from any cause can't break CI the same way again.
+
+Practical note for whoever's managing the actual GitHub repo: adding
+`.gitignore` now doesn't retroactively remove `build/` from git's
+history/tracking on its own -- the already-committed copy needs `git
+rm -r --cached build` (then commit) once, after which `.gitignore`
+will keep it out going forward.
+
 ## GitHub Actions workflow for a real MSVC Windows build
 
 Direct follow-up to getting Windows testing working without compiling

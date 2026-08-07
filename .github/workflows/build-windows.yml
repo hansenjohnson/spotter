@@ -78,7 +78,19 @@ jobs:
         shell: cmd
 
       - name: Build
-        run: cmake --build build --config Release
+        # Only the spotter_pi target itself -- deliberately not the
+        # full default build, which also includes spotter_test_harness.
+        # That target is purely a development tool (used to run this
+        # project's automated checks on macOS/Linux, where it builds
+        # and runs correctly) -- never shipped, never referenced by
+        # OpenCPN, and unrelated to whether the plugin itself works.
+        # It hit a wxWidgets/MSVC entry-point quirk
+        # (wxIMPLEMENT_APP() generating WinMain() instead of main() for
+        # this Console-subsystem target) that a first attempted fix
+        # (defining _CONSOLE) didn't resolve -- not worth spending
+        # further effort on for a tool nothing here actually needs to
+        # run on Windows.
+        run: cmake --build build --config Release --target spotter_pi
         shell: cmd
 
       - name: Upload spotter_pi.dll

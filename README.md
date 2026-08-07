@@ -721,8 +721,14 @@ below use the real Visual Studio/MSVC toolchain throughout, not MinGW.
        -DwxWidgets_LIB_DIR=%wxWidgets_LIB_DIR% ^
        -DOPENCPN_IMPORT_LIB=..\cache\opencpn.lib ^
        ..
-   cmake --build . --config Release
+   cmake --build . --config Release --target spotter_pi
    ```
+   Only the `spotter_pi` target is built here, deliberately -- the
+   project also defines a `spotter_test_harness` target (a
+   development-only tool used to run this project's automated checks,
+   never shipped and not needed to actually use the plugin) that hits
+   a wxWidgets/MSVC entry-point quirk unrelated to `spotter_pi` itself;
+   see `dev.md` if curious about the details.
    This produces `build/Release/spotter_pi.dll` (no `lib` prefix — see
    the `CMakeLists.txt` comment for why, unlike the macOS `.dylib`
    case).

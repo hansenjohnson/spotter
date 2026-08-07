@@ -265,12 +265,19 @@ if(BUILD_TEST_HARNESS AND EXISTS "${CMAKE_SOURCE_DIR}/test_harness/main.cpp")
     # default for add_executable() when WIN32_EXECUTABLE isn't set) --
     # deliberately, since test output needs to print to stdout/the CI
     # log, not disappear into a windowless GUI-subsystem process. The
-    # Console subsystem's CRT startup expects main(), not WinMain();
-    # _CONSOLE is wxWidgets' own documented macro for making
-    # wxIMPLEMENT_APP() generate the former instead of the latter.
-    # Confirmed as a real, reported linker error without this
-    # (LNK2019: unresolved external symbol _main) on the first CI run
-    # that got this far.
+    # Console subsystem's CRT startup expects main(), not WinMain().
+    #
+    # Attempted fix, confirmed NOT sufficient on its own: defining
+    # _CONSOLE (wxWidgets' documented mechanism for getting
+    # wxIMPLEMENT_APP() to generate main() instead of WinMain()) --
+    # left in place since it's harmless, but a second real CI run with
+    # this define present hit the exact same LNK2019 (unresolved
+    # external symbol _main) as the first, unfixed attempt. Rather than
+    # keep debugging an obscure entry-point quirk for a target that's
+    # purely a development tool and never shipped, this build is
+    # simply skipped on Windows entirely -- see
+    # .github/workflows/build-windows.yml and README.md's "Building on
+    # Windows", both of which build only the spotter_pi target there.
     target_compile_definitions(spotter_test_harness PRIVATE _CONSOLE)
   endif()
 endif()
