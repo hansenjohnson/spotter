@@ -1,4 +1,28 @@
-
-# ignore dirs
+# Build output -- never committed. A stale CMakeCache.txt (which
+# hardcodes the absolute path it was configured in) breaking CI on a
+# completely different machine is exactly the kind of problem this
+# exists to prevent; see dev.md for the specific incident.
 build/
-dev.md
+build-*/
+cmake-build*/
+
+# msvc/win_deps.bat's output -- a large, regeneratable, per-machine
+# wxWidgets + opencpn.lib cache that has no business being committed.
+cache/
+
+# Editor/IDE noise
+.vscode/
+.idea/
+.directory
+*.swp
+*~
+
+# OS noise
+.DS_Store
+
+# From the real testplugin_pi's own .gitignore, kept for consistency
+# where it still applies to this project.
+po/POTFILES.in.test
+temp
+tmp
+master.zip
