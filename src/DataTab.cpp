@@ -377,13 +377,32 @@ public:
     // small dropdown arrow -- reported as a real bug, since it meant a
     // keyboard-only user (arrow keys to scroll through options, Enter
     // to pick one -- both already supported once the popup is open, see
-    // OnComboKeyDown above) had no way to actually see or use the list
+    // OnComboKeyDown below) had no way to actually see or use the list
     // without reaching for the mouse first. Explicitly popping it open
     // here means it's already visible the moment a cell becomes active
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
-    if (m_combo) m_combo->Popup();
+    // Deferred via CallAfter() -- confirmed as the cause of a real,
+    // reported regression: called synchronously here (as it was
+    // originally), the popup opened and then immediately closed again,
+    // with the cell left in a broken state afterwards (no longer
+    // openable by mouse click or keyboard at all). Cause: BeginEdit()
+    // runs as part of handling the very Enter keypress that started
+    // the edit. Popping the combo open synchronously, within that same
+    // handling, gives the combo focus while that same keystroke is
+    // still live -- so it then also reaches OnComboKeyDown below,
+    // whose existing Enter-dismisses-popup logic (added earlier, for a
+    // different reason -- see its own comment) immediately closed the
+    // popup this had just opened. Same underlying category of bug, and
+    // the same fix, as OnComboKeyDown's own CallAfter()-deferred
+    // Dismiss() a few lines down: let the triggering keystroke finish
+    // being processed first, on a later event-loop turn, before acting
+    // on the combo.
+    if (m_combo) {
+      wxComboBox* combo = m_combo;
+      combo->CallAfter([combo]() { combo->Popup(); });
+    }
   }
 
   void OnComboKeyDown(wxKeyEvent& evt) {
