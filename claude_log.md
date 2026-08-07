@@ -850,6 +850,15 @@ If the plugin doesn't show up in the list, or crashes, see
 
 ### Matching OpenCPN's exact wxWidgets build
 
+**Update:** the plugin no longer links against wxWidgets' `.dylib`
+files directly on macOS at all -- see the "Real macOS install attempt"
+entry in the Development Log section below for the real, confirmed
+crash this fixed, and why. This whole section, including the
+`install_name_tool` step that used to appear in "Quick Reference"
+below, is kept here for reference/history, but is no longer something
+you need to do -- `otool -L build/libspotter_pi.dylib` should now show
+*no* wxWidgets dependencies at all, only system frameworks.
+
 Check what OpenCPN itself actually bundles:
 
 ```bash
@@ -857,33 +866,29 @@ otool -L /Applications/OpenCPN.app/Contents/MacOS/OpenCPN | grep wx
 ```
 
 As of writing, official OpenCPN.app builds bundle **wxWidgets 3.2.x**
-(e.g. `libwx_osx_cocoau_core-3.2.dylib`). Build against a matching
-version -- **not** Homebrew's default `wxwidgets` formula, which
-currently tracks 3.3 (wxWidgets' unstable development branch; the
-project's own convention is that even-numbered minors like 3.2 are the
-ABI-stable releases). Instead:
+(e.g. `libwx_osx_cocoau_core-3.2.dylib`). For *compiling* (headers
+only now, not linking), still install a matching version --
+**not** Homebrew's default `wxwidgets` formula, which currently tracks
+3.3 (wxWidgets' unstable development branch; the project's own
+convention is that even-numbered minors like 3.2 are the ABI-stable
+releases):
 
 ```bash
 brew install wxwidgets@3.2
 cmake .. -DwxWidgets_CONFIG_EXECUTABLE=$(brew --prefix wxwidgets@3.2)/bin/wx-config-3.2
 ```
 
-This alone isn't quite enough, though: even two different *builds* of
-wxWidgets 3.2.x (Homebrew's vs. OpenCPN's own bundled copy) are not
-guaranteed byte-identical, and macOS's Objective-C runtime will warn
-loudly (`Class wxNSAppController is implemented in both ...`) and can
-crash with "spurious casting failures" if both end up loaded at once.
-The robust fix is to point the plugin at OpenCPN's *own* copies
-directly, so only one copy of wx is ever loaded -- see the
-`install_name_tool` loop in "Quick Reference" below, which discovers
-the actual linked wx paths from the built binary itself via `otool -L`
-rather than assuming a fixed path list. **Use that dynamic version, not
-a hardcoded `-change` list** -- a fixed list of paths is exactly the
-kind of thing that breaks silently the moment your Homebrew prefix
-(Apple Silicon's `/opt/homebrew` vs. Intel's `/usr/local`) or wx patch
-version doesn't match whatever was hardcoded, which is the most likely
-reason a copy-pasted install command stops working after Homebrew
-updates something.
+Historical note on why this needed real thought at all: even two
+different *builds* of wxWidgets 3.2.x (Homebrew's vs. OpenCPN's own
+bundled copy) are not guaranteed byte-identical, and macOS's
+Objective-C runtime can warn loudly (`Class wxNSAppController is
+implemented in both ...`) or crash with "spurious casting failures" if
+both end up loaded into the same process at once. Not linking against
+wxWidgets at all sidesteps this class of problem entirely, rather than
+trying to carefully avoid it -- there's only ever one copy of wx in the
+process (OpenCPN's own), because the plugin never brings a second one
+with it.
+
 
 ## Preparing for official launch on the OpenCPN plugin catalog
 
@@ -1062,20 +1067,6 @@ rm -rf build && mkdir build && cd build
 cmake .. -DwxWidgets_CONFIG_EXECUTABLE=$(brew --prefix wxwidgets@3.2)/bin/wx-config-3.2
 make -j$(sysctl -n hw.ncpu)
 
-# Point the plugin at OpenCPN's own bundled wx libraries instead of
-# Homebrew's (see "Matching OpenCPN's exact wxWidgets build" below for
-# why). This discovers the *actual* linked paths from the binary itself
-# rather than assuming a fixed Homebrew prefix/version -- a hardcoded
-# path list breaks silently (install_name_tool errors out, or worse,
-# silently no-ops) the moment your Homebrew prefix or wx patch version
-# doesn't match exactly what was assumed, which is the most likely
-# reason a copy-pasted fixed command list stops working.
-for lib in $(otool -L libspotter_pi.dylib | grep -i wxwidgets | awk '{print $1}'); do
-  libname=$(basename "$lib")
-  install_name_tool -change "$lib" \
-    "@executable_path/../Frameworks/$libname" libspotter_pi.dylib
-done
-
 codesign --force --deep --sign - libspotter_pi.dylib
 
 mkdir -p ~/Library/Application\ Support/OpenCPN/Contents/PlugIns
@@ -1091,9 +1082,10 @@ codesign --force --deep --sign - \
 # investigating before launching OpenCPN.
 python3 -c "import ctypes; ctypes.CDLL('$HOME/Library/Application Support/OpenCPN/Contents/PlugIns/libspotter_pi.dylib')"
 
-# Sanity check: confirm no stray Homebrew wx paths remain (should print
-# nothing).
-otool -L ~/Library/Application\ Support/OpenCPN/Contents/PlugIns/libspotter_pi.dylib | grep -i homebrew
+# Sanity check: confirm no wxWidgets dependency crept back in (should
+# print nothing -- see "Matching OpenCPN's exact wxWidgets build"
+# above for why this matters).
+otool -L ~/Library/Application\ Support/OpenCPN/Contents/PlugIns/libspotter_pi.dylib | grep -i wx
 ```
 
 Then fully quit OpenCPN (Cmd+Q, not just closing the window) and
@@ -1206,6 +1198,97 @@ what changed, why, what was verified and how, and known limitations.
 Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
+
+## Real macOS install attempt: OpenCPN crashed loading the plugin -- hardcoded Homebrew wxWidgets paths
+
+First real test of the actual built `libspotter_pi.dylib` in a real
+OpenCPN on macOS. The app crashed outright while checking the plugin
+(the log stopped mid-check, with no "compatible: true/false" or error
+message -- consistent with the whole process dying at that moment,
+not a controlled rejection). Cleared a stale `load_stamps` blacklist
+entry first (same OpenCPN mechanism as the earlier Windows
+`create_pi` issue, at `~/Library/Preferences/opencpn/load_stamps` on
+macOS -- confirmed against this machine's own `PrivateDataDir` log
+line), which ruled that out and let the real crash actually surface.
+
+Root cause, confirmed via `otool -L` on the actual built `.dylib`
+(requested and provided directly, rather than guessed at): it had hard
+dependencies baked in on Homebrew-specific paths --
+`/opt/homebrew/opt/wxwidgets@3.2/lib/libwx_osx_cocoau_core-3.2.dylib`
+and four sibling libraries. Those don't exist inside `OpenCPN.app`'s
+own bundle, which carries its own, separate copy of wxWidgets --
+confirmed as a real, previously-reported class of bug in OpenCPN's own
+issue tracker (github.com/OpenCPN/OpenCPN/issues/2153, a plugin built
+against a locally-installed wxWidgets ending up with dependency paths
+that don't exist in the actual runtime bundle), and OpenCPN's own
+build docs explicitly warn that Homebrew's wxWidgets isn't guaranteed
+to match what an official build actually bundles.
+
+Fixed in `CMakeLists.txt`: on `APPLE` specifically, stopped explicitly
+linking `wxWidgets_LIBRARIES` into the plugin target at all. This
+project's `-undefined dynamic_lookup` linker flag -- already relied on
+to defer OpenCPN's own API symbols (`InsertPlugInTool` etc.) to
+`dlopen()` time -- covers wxWidgets symbols exactly the same way once
+they're not explicitly linked: resolved at load time against whatever
+wxWidgets `OpenCPN.app` itself already has loaded, rather than a
+hardcoded path that varies by machine and by whatever Homebrew
+formula version happened to be installed at build time. Headers/
+include paths from `find_package(wxWidgets)` are still needed and
+still used for compiling -- only the library *linking* step changes.
+Linux and Windows are unaffected -- both still link wxWidgets directly
+and explicitly, as before; this is an `APPLE`-only code path.
+
+Verified: rebuilt and reran the full test suite locally on Linux
+(242/242, unaffected), and specifically confirmed via `ldd` that
+Linux's own build still links wxWidgets normally, unchanged by the
+`if(APPLE)`/`else()` restructuring. The actual fix -- whether the
+plugin now loads without crashing once its dependencies resolve
+against OpenCPN's own bundled wxWidgets instead -- is unverified from
+here the same way every other platform-specific fix in this project
+has been: no macOS machine is available in this development
+environment, so this needs a real rebuild and reinstall to confirm.
+
+## Regression: dropdown auto-popup fix broke Enter-to-edit entirely on Windows
+
+Direct, real report from actually using the plugin: pressing Enter on
+a dropdown cell opened the popup and then *immediately* closed it
+again, before a selection could be made -- and left the cell unusable
+afterwards (no longer openable by mouse click or by typing either).
+
+Root cause: this was a regression from the dropdown-auto-popup fix
+added the previous round. That fix called `m_combo->Popup()`
+synchronously, inside `BeginEdit()`. But `BeginEdit()` itself runs as
+part of handling the very Enter keypress that started the cell edit in
+the first place -- so popping the combo open synchronously, within
+that same handling, gave the newly-created combo keyboard focus while
+that *same* Enter keystroke was still being processed. That let it
+also reach `OnComboKeyDown` (already-existing code, from an earlier
+round, for an unrelated reason -- see its own comment), whose
+Enter-dismisses-popup logic immediately closed the popup that had just
+been opened. Both problems traced to the exact same root cause:
+reacting to a keystroke that's still "live" from a different handler
+higher up the same call stack.
+
+Fixed the same way `OnComboKeyDown`'s own, earlier, analogous bug was
+already fixed: deferred the `Popup()` call via `CallAfter()`, so it
+runs on a later event-loop turn, after the triggering Enter keystroke
+has fully finished being processed and is no longer live. Same
+established pattern already proven in this exact file for this exact
+category of same-event-loop-turn conflict, applied consistently rather
+than inventing a new mechanism.
+
+Verified: rebuilt with `-Wall -Wextra` (clean, same pre-existing
+vendored-header warnings as always, nothing new) and reran the full
+test suite (242/242, unaffected). The actual interactive behavior --
+whether Enter now correctly opens the popup and leaves it open for
+selection -- is unverified from here the same way every other
+Windows-UI-specific claim in this project has been: reasoned carefully
+from the mechanism, not visually confirmed, since no Windows machine
+is available in this development environment. This is exactly the
+kind of thing that needs a real test before being trusted, especially
+given the previous round's version of this exact code was *also*
+reasoned through carefully and still shipped a real, working-until-
+tested-for-real regression.
 
 ## GitHub Actions workflow for a real macOS build
 

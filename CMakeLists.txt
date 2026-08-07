@@ -139,7 +139,30 @@ add_library(${PACKAGE_NAME} SHARED ${SRCS})
 
 target_include_directories(${PACKAGE_NAME} PRIVATE src)
 
-target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::api ${wxWidgets_LIBRARIES})
+if(APPLE)
+  # Deliberately NOT linking wxWidgets_LIBRARIES here -- confirmed as
+  # the cause of a real crash, via a real beta tester's `otool -L`
+  # output on the actual built .dylib, which showed hard dependencies
+  # baked in on Homebrew-specific paths
+  # (/opt/homebrew/opt/wxwidgets@3.2/lib/libwx_osx_cocoau_core-3.2.dylib
+  # and siblings). Those don't exist inside OpenCPN.app's own bundle,
+  # which carries its own, separate copy of wxWidgets -- a version/path
+  # mismatch matching a real, documented OpenCPN issue (github.com/
+  # OpenCPN/OpenCPN/issues/2153) and OpenCPN's own build docs' warning
+  # that Homebrew's wxWidgets isn't guaranteed to match an official
+  # build. The same `-undefined dynamic_lookup` this project already
+  # relies on to defer OpenCPN's own API symbols (InsertPlugInTool
+  # etc.) to load-time applies here too: without an explicit link,
+  # wxWidgets symbols are deferred the same way, resolved at dlopen()
+  # time against whatever wxWidgets OpenCPN.app itself has already
+  # loaded, rather than a hardcoded path that varies by machine and
+  # Homebrew formula version. Headers/include paths from
+  # find_package(wxWidgets) above are still needed and still used --
+  # only the *library* linking step is skipped here.
+  target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::api)
+else()
+  target_link_libraries(${PACKAGE_NAME} PRIVATE ocpn::api ${wxWidgets_LIBRARIES})
+endif()
 if(OpenGL_FOUND)
   target_link_libraries(${PACKAGE_NAME} PRIVATE OpenGL::GL)
 endif()
@@ -159,7 +182,11 @@ if(APPLE)
   # supplies them (InsertPlugInTool, the opencpn_plugin_XX default virtuals,
   # etc.) at dlopen() time when it loads the plugin. This is the same
   # "plugin dylib" pattern Apple's own bundle/plugin docs describe, and
-  # exactly what OpenCPN's own build scripts do for every plugin.
+  # exactly what OpenCPN's own build scripts do for every plugin. This flag
+  # is also what makes it possible to skip linking wxWidgets_LIBRARIES
+  # directly on this platform (see the APPLE block above, near
+  # target_link_libraries) -- without it, leaving wxWidgets symbols
+  # unresolved like that wouldn't link at all.
   target_link_options(${PACKAGE_NAME} PRIVATE -undefined dynamic_lookup)
 endif()
 
