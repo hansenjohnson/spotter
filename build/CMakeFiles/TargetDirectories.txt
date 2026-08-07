@@ -1,6 +1,0 @@
-/Users/hjohnson/Projects/spotter_pi/build/CMakeFiles/spotter_pi.dir
-/Users/hjohnson/Projects/spotter_pi/build/CMakeFiles/spotter_test_harness.dir
-/Users/hjohnson/Projects/spotter_pi/build/CMakeFiles/edit_cache.dir
-/Users/hjohnson/Projects/spotter_pi/build/CMakeFiles/rebuild_cache.dir
-/Users/hjohnson/Projects/spotter_pi/build/libs/api-18/CMakeFiles/edit_cache.dir
-/Users/hjohnson/Projects/spotter_pi/build/libs/api-18/CMakeFiles/rebuild_cache.dir

@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/hjohnson/Projects/spotter_pi/build/cmake_install.cmake",
-		"/Users/hjohnson/Projects/spotter_pi/build/libs/api-18/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
