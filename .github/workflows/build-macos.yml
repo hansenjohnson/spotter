@@ -1,0 +1,88 @@
+# Builds a real libspotter_pi.dylib on a genuine macOS runner -- no
+# compiling on your own Mac. This runs the exact same, already-
+# documented local build steps (see this repo's "Building on macOS"
+# section) on GitHub's infrastructure instead of yours: install
+# wxwidgets@3.2 via Homebrew, then cmake/make pointed at its
+# wx-config. Unlike the Windows build, macOS needs no import library
+# and no separate dependency-download script -- OpenCPN plugins on
+# macOS are built with symbols deliberately left unresolved
+# (-undefined dynamic_lookup, already set in CMakeLists.txt's APPLE
+# block), resolved by OpenCPN itself at dlopen() time, so there's
+# nothing else to fetch first.
+#
+# Targets macos-15 (Apple Silicon/arm64) specifically, matching what
+# this project documents itself as built for elsewhere -- not
+# macos-14, which began deprecating in July 2026, and not macos-latest,
+# which tracks whatever GitHub currently defaults to (macos-26 as of
+# this writing) and could shift this workflow's toolchain out from
+# under it without warning.
+#
+# Runs on every push and can also be triggered manually from the
+# Actions tab (workflow_dispatch) without needing a push at all.
+#
+# The finished libspotter_pi.dylib is attached to the run as a
+# downloadable artifact (see the "Artifacts" section at the bottom of
+# the run's summary page). Nothing here goes near the official OpenCPN
+# plugin catalog, Cloudsmith, or any CI account beyond GitHub's own.
+#
+# Honest status: this workflow has been written carefully, based on
+# real, already-documented local build commands, but has not actually
+# been run as part of this project -- doing so requires this
+# repository to exist on GitHub and a workflow run to be triggered
+# there, neither of which was possible from within this development
+# environment (which is Linux-only; no macOS machine was available to
+# test this directly either). The Windows equivalent of this workflow
+# needed a few small, real fixes on its first couple of actual runs
+# (see the Development Log section of claude_log.md) -- expect the
+# same possibility here, not a sign something is fundamentally wrong.
+
+name: Build macOS dylib
+
+"on":
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v5
+
+      - name: Install wxWidgets
+        # Homebrew is pre-installed on GitHub's macOS runners. Single
+        # source of truth with the documented local build steps -- see
+        # this repo's "Building on macOS" section for the exact same
+        # command told to a human building by hand.
+        run: brew install wxwidgets@3.2
+
+      - name: Configure
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. \
+              -DwxWidgets_CONFIG_EXECUTABLE=$(brew --prefix wxwidgets@3.2)/bin/wx-config-3.2
+
+      - name: Build
+        # Only the spotter_pi target itself -- deliberately not the
+        # full default build, which also includes spotter_test_harness.
+        # That target is purely a development tool (used to run this
+        # project's automated checks), never shipped, never referenced
+        # by OpenCPN, and unrelated to whether the plugin itself works.
+        # Kept out of this workflow's scope for the same reason it's
+        # kept out of the Windows one -- see that workflow's own Build
+        # step for the fuller reasoning, though nothing here suggests
+        # the test harness has any particular problem on macOS
+        # specifically the way it did on MSVC.
+        run: |
+          cd build
+          make spotter_pi -j$(sysctl -n hw.ncpu)
+
+      - name: Upload libspotter_pi.dylib
+        uses: actions/upload-artifact@v6
+        with:
+          name: spotter_pi-macos-dylib
+          path: build/libspotter_pi.dylib
+          if-no-files-found: error

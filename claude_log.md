@@ -1207,6 +1207,52 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## GitHub Actions workflow for a real macOS build
+
+Per direct request (Linux explicitly deprioritized for now). Added
+`.github/workflows/build-macos.yml`, modeled closely on the existing,
+by-then-working Windows workflow but considerably simpler: macOS needs
+no import library and no separate dependency-download script the way
+Windows does. OpenCPN plugins on macOS are already built with symbols
+deliberately left unresolved (`-undefined dynamic_lookup`, already set
+in `CMakeLists.txt`'s `APPLE` block) for OpenCPN itself to resolve at
+`dlopen()` time, so the workflow is just: install `wxwidgets@3.2` via
+Homebrew (pre-installed on GitHub's macOS runners), then run the exact
+same `cmake`/`make` commands this repo's own "Building on macOS"
+section already documents for a human building by hand. Same
+single-source-of-truth approach as the Windows workflow's `win_deps.bat`
+call, applied here directly to the documented commands themselves
+since there's no separate script to point at.
+
+Targets `macos-15` specifically (Apple Silicon/arm64, matching what
+this project documents itself as built for elsewhere) -- checked
+current GitHub-hosted runner status directly rather than assuming:
+`macos-14` began deprecating July 2026 and won't be supported much
+longer, and `macos-latest` currently tracks `macos-26` (a newer,
+less-established image) and could shift again without warning, neither
+of which seemed like the right target for a new workflow being set up
+now.
+
+Builds only the `spotter_pi` target, same reasoning as the Windows
+workflow -- `spotter_test_harness` is a development-only tool, never
+shipped, and out of scope here regardless of whether it would actually
+build fine on a real Mac (no reason to suspect it wouldn't, unlike the
+real, confirmed MSVC-specific entry-point issue on Windows -- just kept
+consistent and minimal-scope either way).
+
+Verified: confirmed the exact build output path (`build/
+libspotter_pi.dylib`) against `CMakeLists.txt`'s actual target name and
+`APPLE`-specific `SUFFIX`/prefix settings, rather than assuming it.
+Rebuilt and reran the full test suite locally on Linux (242/242,
+unaffected -- this only added a new workflow file). Honest status, same
+as every other CI-related change in this project: written carefully
+against real, documented commands, but not actually run -- no macOS
+machine was available in this development environment either, so this
+needs a real GitHub Actions run (and ideally an actual load-test in
+OpenCPN on a Mac) to fully confirm, the same as the Windows workflow
+needed a few real fixes on its own first couple of runs before it
+actually produced a working plugin.
+
 ## First real Windows use: docs reorg, CI Node warning, row heights, dropdown popup
 
 First real feedback from actually using the plugin in OpenCPN on
