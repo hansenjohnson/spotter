@@ -258,4 +258,19 @@ if(BUILD_TEST_HARNESS AND EXISTS "${CMAKE_SOURCE_DIR}/test_harness/main.cpp")
   if(OpenGL_FOUND)
     target_link_libraries(spotter_test_harness PRIVATE OpenGL::GL)
   endif()
+  if(MSVC)
+    # wxIMPLEMENT_APP() (in test_harness/main.cpp) generates a WinMain()
+    # entry point by default on MSVC, for the Windows (GUI) subsystem.
+    # This target is linked for the Console subsystem instead (CMake's
+    # default for add_executable() when WIN32_EXECUTABLE isn't set) --
+    # deliberately, since test output needs to print to stdout/the CI
+    # log, not disappear into a windowless GUI-subsystem process. The
+    # Console subsystem's CRT startup expects main(), not WinMain();
+    # _CONSOLE is wxWidgets' own documented macro for making
+    # wxIMPLEMENT_APP() generate the former instead of the latter.
+    # Confirmed as a real, reported linker error without this
+    # (LNK2019: unresolved external symbol _main) on the first CI run
+    # that got this far.
+    target_compile_definitions(spotter_test_harness PRIVATE _CONSOLE)
+  endif()
 endif()
