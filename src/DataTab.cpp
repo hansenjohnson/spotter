@@ -1038,6 +1038,20 @@ void DataTab::SetGridFontSize(int pointSize) {
 
 void DataTab::ReapplyRowHeights() {
   if (!m_grid) return;
+  // Reset every row to a small baseline *before* AutoSizeRows() below,
+  // so it's forced to measure fresh against actual current content --
+  // confirmed as necessary to fix a real, reported regression from the
+  // safety-margin padding further down: AutoSizeRows() treats a row's
+  // *current* height as a floor and won't shrink it, only grow it if
+  // needed. Without this reset, every call after the first saw an
+  // already-padded height, left it alone (already "big enough" as far
+  // as AutoSizeRows() was concerned), and then had another +6px added
+  // on top of that -- so row heights kept growing every time a tab was
+  // switched away from and back to, compounding indefinitely instead
+  // of applying the margin once.
+  for (int row = 0; row < m_grid->GetNumberRows(); row++) {
+    m_grid->SetRowSize(row, m_grid->GetDefaultRowSize());
+  }
   m_grid->AutoSizeRows();
   // A small safety margin beyond whatever AutoSizeRows() itself
   // calculated -- a real, reported bug: rows came out too short to
@@ -1055,6 +1069,11 @@ void DataTab::ReapplyRowHeights() {
     m_grid->SetRowSize(row, m_grid->GetRowSize(row) + 6);
   }
   m_grid->ForceRefresh();
+}
+
+int DataTab::GetRowHeight(int row) const {
+  if (!m_grid || row < 0 || row >= m_grid->GetNumberRows()) return -1;
+  return m_grid->GetRowSize(row);
 }
 
 std::vector<int> DataTab::GetColumnWidths() const {

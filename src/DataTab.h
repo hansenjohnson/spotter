@@ -286,6 +286,13 @@ public:
   // existing CSV).
   void ReapplyRowHeights();
 
+  // A single row's current height in pixels, or -1 if there's no grid
+  // or the row doesn't exist. Exists specifically so
+  // ReapplyRowHeights() not compounding row growth on repeated calls
+  // (a real, reported bug -- see its own comment) can be verified in
+  // an automated test, rather than only by visual inspection.
+  int GetRowHeight(int row) const;
+
   // Reminder timer, driven entirely from outside (LogWindow's status
   // bar) now -- there's no in-tab UI for it any more. No-ops / returns
   // defaults if this tab didn't enable one.

@@ -1236,6 +1236,29 @@ private:
     check(log2->Sightings()->RowCount() == 1,
           "Can add a fresh row after Start New Survey");
 
+    // Regression test for a real, reported bug: row heights kept
+    // growing every time a tab was revisited (each revisit calls
+    // ReapplyRowHeights() again), because AutoSizeRows() treats a
+    // row's *current* height as a floor and won't shrink it -- so the
+    // safety margin ReapplyRowHeights() adds on top was compounding on
+    // every single call instead of being applied once. Fixed by
+    // resetting each row to a baseline before recalculating; this
+    // confirms it stays fixed, across several repeated calls, not
+    // just the first two.
+    log2->Sightings()->ReapplyRowHeights();
+    int rowHeight1 = log2->Sightings()->GetRowHeight(0);
+    log2->Sightings()->ReapplyRowHeights();
+    int rowHeight2 = log2->Sightings()->GetRowHeight(0);
+    log2->Sightings()->ReapplyRowHeights();
+    int rowHeight3 = log2->Sightings()->GetRowHeight(0);
+    check(rowHeight1 > 0,
+          "ReapplyRowHeights() produces a real, positive row height");
+    check(rowHeight2 == rowHeight1,
+          "Row height doesn't grow on a second ReapplyRowHeights() call");
+    check(rowHeight3 == rowHeight1,
+          "Row height doesn't grow on a third ReapplyRowHeights() call "
+          "either (confirms it's stable, not just slower-growing)");
+
     plugin2.DeInit();
 
     // --- One more restart to confirm the new survey's file (and its

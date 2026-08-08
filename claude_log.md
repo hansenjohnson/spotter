@@ -1199,6 +1199,47 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Regression: row heights compounding-growing every time a tab was revisited
+
+Direct, real report from actually using the plugin on macOS: a new
+row's height started out correct, but grew larger every time its tab
+was switched away from and back to -- and kept growing on each
+subsequent revisit, not just once.
+
+Root cause: another regression from the row-height fix added two
+rounds back (the "too small on Windows" safety margin). That fix added
+a fixed +6px on top of whatever `AutoSizeRows()` calculated, every
+single time `ReapplyRowHeights()` ran (which happens on tab switches,
+among other triggers). But `wxGrid::AutoSizeRows()` treats a row's
+*current* height as a floor -- it grows a row if content needs more,
+but never shrinks it back down. So every call after the first saw an
+already-padded (from the previous call) row, left it alone since it
+was already "big enough," and then added *another* +6px on top of
+that -- compounding indefinitely instead of being applied once.
+
+Fixed by resetting every row to `GetDefaultRowSize()` immediately
+before calling `AutoSizeRows()`, forcing it to measure fresh against
+actual current content every time, rather than against a height a
+previous call had already inflated.
+
+Also added an automated regression test for this specific bug, rather
+than relying on reasoning alone (which is exactly what let this
+regression through two rounds ago) -- a small public `GetRowHeight()`
+accessor on `DataTab`, and a test that calls `ReapplyRowHeights()`
+three times in a row on the same row and confirms the height stays
+identical each time, not growing. This runs as a real `wxGrid` under
+`xvfb` on Linux, not a stub, so it's genuine, verified confirmation
+that the *mechanism* behind this fix is sound -- not just reasoning
+about it, the way every purely Windows/macOS-specific claim in this
+project has had to be. It doesn't independently confirm every pixel
+value macOS itself will render, but growing-without-bound is
+platform-independent behavior this test can and does catch directly.
+
+Verified: rebuilt and reran the full test suite (245/245 -- the 3 new
+tests plus the previous 242, all passing, including the new ones
+specifically confirming stable, non-growing row heights across
+repeated calls).
+
 ## Real macOS install attempt: OpenCPN crashed loading the plugin -- hardcoded Homebrew wxWidgets paths
 
 First real test of the actual built `libspotter_pi.dylib` in a real
