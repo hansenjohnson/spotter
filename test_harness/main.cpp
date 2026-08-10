@@ -1259,6 +1259,30 @@ private:
           "Row height doesn't grow on a third ReapplyRowHeights() call "
           "either (confirms it's stable, not just slower-growing)");
 
+    // Regression test for a second, related but distinct real,
+    // reported bug: a freshly-added row's height was never calculated
+    // against its own content at all until *something else* happened
+    // to trigger ReapplyRowHeights() later (a tab switch, in
+    // particular) -- so at a large grid font size specifically, a new
+    // row initially showed only part of its text. Confirms a new row
+    // added *after* switching to a large font is already correctly
+    // sized immediately, with no separate ReapplyRowHeights() call in
+    // between -- rather than just confirming ReapplyRowHeights()
+    // itself works, which the checks above already cover. Uses the
+    // Events tab specifically, not Sightings -- Sightings' row count
+    // is depended on by the restart/persistence checks just below,
+    // and adding a row here would throw those off.
+    log2->Events()->AddRow();
+    int smallFontRowHeight = log2->Events()->GetRowHeight(0);
+    log2->Events()->SetGridFontSize(28);
+    log2->Events()->AddRow();
+    int newRowIdx = log2->Events()->RowCount() - 1;
+    int newRowHeightAtLargeFont = log2->Events()->GetRowHeight(newRowIdx);
+    check(newRowHeightAtLargeFont > smallFontRowHeight * 1.5,
+          "A newly-added row is already sized for the current (here, "
+          "much larger) grid font immediately, with no separate "
+          "refresh/tab-switch needed first");
+
     plugin2.DeInit();
 
     // --- One more restart to confirm the new survey's file (and its

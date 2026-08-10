@@ -1199,6 +1199,70 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Real bugs, correctly diagnosed this time: new rows never sized on creation; button text overflow at large UI font sizes
+
+Direct report, with a much more precise description than the earlier,
+similar-sounding row-height reports: with a large grid font (e.g.
+20pt+), a *newly created* row is too short to show its own text, but
+resizes correctly the moment something else happens to trigger a
+refresh (switching tabs away and back, in particular). Confirmed as
+happening identically on both Windows and macOS -- which, in
+hindsight, should have been the first clue that none of the previous
+several rounds of row-height work (all reasoned around platform-
+specific font-metric differences) were actually addressing this
+particular bug at all. They were fixing real, different problems
+(rows too short specifically on Windows; rows compounding-growing on
+repeated refresh; a margin fix leaking onto platforms that never
+needed it) -- but none of that explains "wrong on both platforms until
+manually refreshed," which is what was actually being reported here.
+
+Root cause, found by actually reading the row-add code path rather
+than reasoning about font metrics again: `DataTab::OnRowAdded()` --
+called every time a new row is created -- does a great deal of
+per-cell setup (editors, default values, styling) but never once
+calls `ReapplyRowHeights()` or anything else that would size the new
+row against its own actual content. A new row's height was only ever
+correct by coincidence (whatever generic height a brand new grid row
+happens to get) or because some *unrelated* later trigger (a tab
+switch) happened to run `ReapplyRowHeights()` for the whole grid
+anyway. Fixed by calling `ReapplyRowHeights()` at the end of
+`OnRowAdded()` -- the same, already-tested function every other
+row-height code path already uses, not a new mechanism.
+
+Added an automated regression test for this specific bug, on the
+Events tab specifically (not Sightings, which the surrounding restart/
+persistence tests depend on for an exact row count -- adding a test
+row there without cleaning it up broke two unrelated, downstream
+checks on the first attempt, caught and fixed before this was
+delivered): switches to a large grid font, adds a row, and confirms
+its height is already correctly larger immediately, with no separate
+`ReapplyRowHeights()` call in between.
+
+**Second, related but separate bug, from the same report:** button
+text overflowing its own button's boundaries at large UI font sizes
+(20pt+) -- a different setting from the grid font above; this is the
+overall UI font size (`DisplaySettings::UiFontSize()`), applied once,
+recursively, to every non-grid control when `LogWindow` is
+constructed. Root cause: `wxWindow::SetFont()` does not itself trigger
+a resize -- a control keeps whatever bounding box it was created with
+(sized for whatever font was active then), even after being given a
+much larger font to render. Fixed in `LogWindow::ApplyUiFontSize()`:
+after `SetFont()`, `InvalidateBestSize()` (marks the cached best-size
+stale) followed by `SetSize(GetBestSize())` (recomputes and applies
+it) for each control, then -- after the recursive walk over all
+children completes, so each child's own size is already correct
+first -- `Layout()` on any window that has its own sizer, so nested
+containers correctly account for their now-larger children. Also added
+a final `Layout()` call at the top-level call site, for good measure.
+
+Verified: rebuilt and reran the full test suite (246/246 -- the new
+row-height regression test, plus all 245 from before, all passing). No
+automated test added for the button-sizing fix specifically -- it's a
+visual/layout outcome that would need genuine pixel-measurement
+infrastructure this project doesn't have, rather than something a
+quick, meaningful check could cover the way the row-height fix's
+mechanism could.
+
 ## Regression: row-height margin applied to macOS too, when it was only ever needed on Windows
 
 Direct, real report from actually using the plugin on macOS: rows were

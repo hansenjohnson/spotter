@@ -1400,6 +1400,20 @@ void DataTab::OnRowAdded(int row) {
   m_grid->ForceRefresh();
   m_grid->MakeCellVisible(row, 0);
   m_grid->SetGridCursor(row, 0);
+  // A freshly-added row never had its height calculated against its
+  // own actual content until now -- confirmed as a real, reported bug:
+  // with a large grid font specifically (where the gap between a
+  // generic/previous row height and what a new row's own content
+  // actually needs is large enough to notice), a new row showed only
+  // part of its text until something else happened to trigger
+  // ReapplyRowHeights() later (a tab switch, in particular -- which is
+  // why refreshing appeared to "fix" it). Calling it here means a new
+  // row is sized correctly from the moment it appears, not just
+  // eventually. Same platform-independent underlying cause on both
+  // Windows and macOS, per direct report -- this was never actually a
+  // platform-specific rendering issue at all, just a step that was
+  // never being run for a brand new row in the first place.
+  ReapplyRowHeights();
 
   if (on_chart_changed) on_chart_changed();
 

@@ -559,6 +559,7 @@ LogWindow::LogWindow(wxWindow* parent, SpotterPlugin* plugin,
   // their own separate GridFontSize control).
   if (m_plugin->GetDisplaySettings()) {
     ApplyUiFontSize(this, m_plugin->GetDisplaySettings()->UiFontSize());
+    Layout();
   }
 
   // Split Horizontal is the default view (see the "View:" dropdown
@@ -612,9 +613,26 @@ void LogWindow::ApplyUiFontSize(wxWindow* win, int pointSize) {
   wxFont f = win->GetFont();
   f.SetPointSize(pointSize);
   win->SetFont(f);
+  // SetFont() alone doesn't resize a widget -- confirmed as a real,
+  // reported bug: at a large UI font size (20pt+), button text visibly
+  // overflowed the button's own boundaries, because the button kept
+  // whatever bounding box it was originally created with (sized for
+  // whatever font was active then), even though it was now rendering
+  // much larger text inside that same, unchanged box.
+  // InvalidateBestSize() marks the cached best-size stale so it's
+  // recomputed against the new font; SetSize() to that freshly-
+  // recomputed size actually applies it.
+  win->InvalidateBestSize();
+  win->SetSize(win->GetBestSize());
   for (wxWindow* child : win->GetChildren()) {
     ApplyUiFontSize(child, pointSize);
   }
+  // Deliberately after the children loop, not before: a child needs
+  // its own correct, font-adjusted size established first, so that
+  // when this window's own sizer (if it has one) lays out its
+  // children, it's measuring against each child's real, up-to-date
+  // size rather than a still-stale one.
+  if (win->GetSizer()) win->Layout();
 }
 
 void LogWindow::BuildBottomBar(wxSizer* rootSizer, wxWindow* root) {
