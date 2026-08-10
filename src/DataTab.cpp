@@ -367,6 +367,9 @@ public:
       // correctly matters more.
       m_combo->Bind(wxEVT_KEY_DOWN,
                     &SearchableChoiceGridCellEditor::OnComboKeyDown, this);
+      m_popupTimer.SetOwner(m_combo);
+      m_combo->Bind(wxEVT_TIMER, &SearchableChoiceGridCellEditor::OnPopupTimer,
+                    this);
     }
   }
 
@@ -383,26 +386,34 @@ public:
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
-    // Deferred via CallAfter() -- confirmed as the cause of a real,
-    // reported regression: called synchronously here (as it was
-    // originally), the popup opened and then immediately closed again,
-    // with the cell left in a broken state afterwards (no longer
-    // openable by mouse click or keyboard at all). Cause: BeginEdit()
-    // runs as part of handling the very Enter keypress that started
-    // the edit. Popping the combo open synchronously, within that same
-    // handling, gives the combo focus while that same keystroke is
-    // still live -- so it then also reaches OnComboKeyDown below,
-    // whose existing Enter-dismisses-popup logic (added earlier, for a
-    // different reason -- see its own comment) immediately closed the
-    // popup this had just opened. Same underlying category of bug, and
-    // the same fix, as OnComboKeyDown's own CallAfter()-deferred
-    // Dismiss() a few lines down: let the triggering keystroke finish
-    // being processed first, on a later event-loop turn, before acting
-    // on the combo.
-    if (m_combo) {
-      wxComboBox* combo = m_combo;
-      combo->CallAfter([combo]() { combo->Popup(); });
-    }
+    // Delayed via a real, short wall-clock timer (60ms) rather than
+    // CallAfter() alone -- confirmed necessary for a real, reported
+    // regression that persisted even after switching to CallAfter():
+    // on Windows specifically, the popup still flashed open and
+    // immediately closed again, before a selection could be made.
+    // CallAfter() only guarantees "runs on the next idle cycle," which
+    // can still race against the *native* Win32 combobox control's own,
+    // separate handling of the same triggering Enter keystroke --
+    // wxWidgets' own documentation confirms that on Windows, pressing
+    // Enter in a combobox is "processed internally by the control"
+    // (i.e. at the OS message level, entirely outside wx's C++ event
+    // system) unless wxTE_PROCESS_ENTER is set, which this control
+    // doesn't have. If that native, OS-level handling runs *after*
+    // this call opens the popup, it can toggle it back closed --
+    // matching the exact symptom reported (opens then immediately
+    // closes). A short, genuine timer delay -- not just "next idle
+    // cycle," an actual number of milliseconds -- gives that native
+    // processing time to actually finish first: if it also opens the
+    // popup as part of its own handling, this call is then a harmless
+    // no-op on an already-open popup, rather than racing to open it
+    // first and having the native handling close it again afterward.
+    // 60ms is short enough to be imperceptible as a delay but should
+    // be well clear of same-keystroke residual message processing.
+    if (m_combo) m_popupTimer.StartOnce(60);
+  }
+
+  void OnPopupTimer(wxTimerEvent&) {
+    if (m_combo) m_combo->Popup();
   }
 
   void OnComboKeyDown(wxKeyEvent& evt) {
@@ -564,6 +575,7 @@ private:
   wxString m_pendingValue;
   bool m_updatingText = false;
   bool m_lastKeyWasDelete = false;
+  wxTimer m_popupTimer;
 };
 
 }  // namespace

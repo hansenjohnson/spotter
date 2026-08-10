@@ -1199,6 +1199,61 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Third attempt at the Windows-only dropdown-closes-immediately bug
+
+Direct, more precise report: the dropdown-flashes-open-then-closes
+bug, previously thought fixed by deferring the popup-open call via
+`CallAfter()`, is still happening -- Windows only, confirmed working
+correctly on macOS with the exact same code. This is the third distinct
+attempt at this bug (first: opening the popup synchronously in
+`BeginEdit()` at all; second: deferring that via `CallAfter()`), and
+worth being honest about directly: the previous two attempts were both
+reasoned through carefully and still didn't fix it, so this one should
+be held to the same skepticism until actually confirmed on a real
+Windows machine, not assumed correct because the reasoning sounds
+sound.
+
+New theory, this time grounded in wxWidgets' own documented behavior
+rather than reasoning about this project's code alone: on Windows
+specifically, a native combobox control processes the Enter key
+*internally, at the OS message level* -- entirely separate from wx's
+own C++ event system -- unless the control has the `wxTE_PROCESS_ENTER`
+style (which this one doesn't). This suggested `CallAfter()`'s
+"runs on the next idle cycle" guarantee might not be a strong enough
+guarantee here: the *native* control's own handling of the same
+triggering Enter keystroke could still be racing against it as a
+separate, OS-level message, outside `CallAfter()`'s visibility
+entirely. If that native handling runs after this project's own
+`Popup()` call, it could be toggling an already-open popup back closed
+-- which matches the exact reported symptom.
+
+Fixed (attempted) by replacing the `CallAfter()`-deferred `Popup()`
+call with a real `wxTimer`, one-shot, 60ms -- a genuine wall-clock
+delay, not just "next idle cycle," specifically to give any native,
+OS-level residual processing of the same keystroke more time to
+actually finish first. If that native processing also opens the popup
+as part of its own handling, this call becomes a harmless no-op on an
+already-open popup, rather than racing to open it first only for the
+native handling to close it again afterward. 60ms was chosen as short
+enough to be imperceptible as a UI delay (well under typical ~100ms
+perceptible-lag thresholds) while being meaningfully longer than
+simple message-queue processing timescales.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected
+-- none of the existing automated tests exercise real, timed key-event
+interaction with an open combobox popup, so this specific fix's actual
+effectiveness genuinely can't be covered by this project's current
+test infrastructure, only by hands-on testing on a real Windows
+machine). If this *also* turns out not to fix it, the next things
+worth investigating are more invasive: overriding `Create()` to add
+`wxTE_PROCESS_ENTER` explicitly (letting this project's own code
+receive and fully control the Enter event instead of the native
+control processing it internally at all), or a native Win32-specific
+approach (`#ifdef __WXMSW__`) using the `CB_SHOWDROPDOWN` message
+directly rather than wx's own `Popup()` wrapper, in case that wrapper
+itself has platform-specific timing quirks beyond what's addressed
+here.
+
 ## Real bugs, correctly diagnosed this time: new rows never sized on creation; button text overflow at large UI font sizes
 
 Direct report, with a much more precise description than the earlier,
