@@ -348,23 +348,34 @@ public:
     m_combo = dynamic_cast<wxComboBox*>(GetControl());
     if (m_combo) {
       m_combo->Bind(wxEVT_TEXT, &SearchableChoiceGridCellEditor::OnText, this);
+#ifdef __WXMSW__
+      // Experimental, not confirmed working: on Windows, a native
+      // combobox handles the Enter key "internally" (wxWidgets' own
+      // documented term) unless this style is set, in which case it
+      // instead generates a wxEVT_TEXT_ENTER command event that this
+      // project's own code could handle -- see BeginEdit() below for
+      // why this project needs the native handling *not* to run.
+      // Genuinely uncertain whether setting this post-construction
+      // (rather than at the combo's original creation, which this
+      // project doesn't control -- that happens inside the base
+      // class's Create() above) actually changes the native control's
+      // behavior on MSW; some native styles only take effect if set at
+      // creation. Left in specifically because it's low-risk to try
+      // (at worst, no effect) and is a genuinely different mechanism
+      // from every previous attempt at this same underlying problem,
+      // not a variation on the same timing-based approach that's
+      // already failed multiple times.
+      m_combo->SetWindowStyleFlag(m_combo->GetWindowStyleFlag() |
+                                  wxTE_PROCESS_ENTER);
+#endif
       // The dropdown popup closes immediately on a mouse click, but
       // (reported) not when a choice is picked via the keyboard
       // (Enter) -- wxGrid's own Enter handling commits the cell edit,
       // but doesn't itself tell the combo's popup to physically
-      // dismiss if it's still open at that point. Explicitly dismissing
-      // it here on Enter/Tab matches the mouse-click behavior.
-      //
-      // A later attempt at also fixing "Enter needs to be pressed
-      // twice to select-and-close" bound wxEVT_COMBOBOX to dismiss
-      // immediately once a selection was finalized -- reverted after
-      // it broke arrow-key navigation through the popup entirely:
-      // wxEVT_COMBOBOX fires on *every* highlight change while
-      // arrow-keying through an open list, not just on a final
-      // Enter-to-commit, so every arrow press was immediately
-      // dismissing the popup. The double-Enter-to-close behavior below
-      // is a minor, accepted annoyance -- arrow-key navigation working
-      // correctly matters more.
+      // dismiss if it's still open at that point. Dismissing it
+      // explicitly in EndEdit() below (not here) matches the
+      // mouse-click behavior -- see that function's own comment for
+      // why it lives there and not in a key event handler.
       m_combo->Bind(wxEVT_KEY_DOWN,
                     &SearchableChoiceGridCellEditor::OnComboKeyDown, this);
       m_popupTimer.SetOwner(m_combo);
@@ -396,37 +407,24 @@ public:
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
-#ifndef __WXMSW__
     // Delayed via a real, short wall-clock timer (60ms) rather than
-    // CallAfter() alone -- confirmed necessary on Windows for a real,
-    // reported regression that persisted even after switching to
-    // CallAfter() there (see the #else branch below for why this
-    // whole approach was ultimately abandoned on Windows specifically,
-    // after three separate attempts). Kept here for macOS/Linux, where
-    // it's confirmed working correctly and there's no equivalent
-    // native-control-level Enter handling to race against.
+    // CallAfter() alone -- confirmed necessary on Windows for an
+    // earlier, real, reported regression that persisted even with
+    // CallAfter() there (the popup flashing open and then immediately
+    // closing again, confirmed via direct, real-machine testing, not
+    // just reasoned about). Kept for all platforms now, combined with
+    // wxTE_PROCESS_ENTER above on Windows specifically (an attempt at
+    // addressing the actual root cause -- a native Win32 combobox
+    // handling Enter "internally," per wxWidgets' own documentation --
+    // rather than only timing around it). Genuinely uncertain whether
+    // this combination fully resolves it on Windows: this exact
+    // auto-popup-on-BeginEdit approach, on its own, was already tried
+    // and confirmed not sufficient there across three earlier attempts
+    // (synchronous, CallAfter()-deferred, and this same 60ms timer
+    // without wxTE_PROCESS_ENTER). OnComboKeyDown below still handles
+    // Down arrow/a subsequent Enter as a fallback either way, in case
+    // this one doesn't fully solve it either.
     if (m_combo) m_popupTimer.StartOnce(60);
-#else
-    // On Windows, the popup is deliberately *not* auto-opened here at
-    // all. Three separate attempts (calling Popup() synchronously;
-    // deferring it via CallAfter(); deferring it via a 60ms wxTimer)
-    // all still showed the exact same symptom -- the popup flashing
-    // open and then immediately closing again, confirmed via direct,
-    // real-machine testing each time, not just reasoned about. Per
-    // direct suggestion, rather than continuing to guess at timing
-    // fixes for a race against the *same* Enter keystroke that started
-    // the cell edit in the first place (wxWidgets' own docs confirm a
-    // native Win32 combobox handles Enter "internally," at the OS
-    // message level, outside wx's own event system entirely, unless
-    // wxTE_PROCESS_ENTER is set -- which is what every previous
-    // attempt here was actually racing against), Windows instead opens
-    // the popup in response to a *separate*, later keystroke -- Down
-    // arrow, or a second Enter press -- handled in OnComboKeyDown
-    // below. That's a genuinely new, distinct key event delivered to
-    // an already-settled, already-focused control, not one competing
-    // with BeginEdit's own triggering keystroke the way every previous
-    // attempt here did, so it needs no delay or deferral at all.
-#endif
   }
 
   void OnPopupTimer(wxTimerEvent&) {
@@ -435,14 +433,15 @@ public:
 
   void OnComboKeyDown(wxKeyEvent& evt) {
 #ifdef __WXMSW__
-    // Windows-specific: the popup isn't auto-opened in BeginEdit()
-    // here at all (see its own comment for the full reasoning) --
-    // Down arrow, or Enter while the popup isn't already open, opens
-    // it instead. Deliberately *not* deferred/delayed in any way,
-    // unlike every attempt at auto-opening on BeginEdit()'s own
-    // triggering keystroke: this is a genuinely separate, later key
-    // event, delivered to an already-settled, already-focused combo,
-    // so there's no same-keystroke race to guard against here.
+    // Windows-specific fallback: BeginEdit() above also tries to
+    // auto-open the popup (see its own comment) -- if that hasn't
+    // worked by the time a later key event reaches here, Down arrow,
+    // or Enter while the popup isn't already open, opens it instead.
+    // Deliberately *not* deferred/delayed in any way, unlike every
+    // attempt at auto-opening on BeginEdit()'s own triggering
+    // keystroke: this is a genuinely separate, later key event,
+    // delivered to an already-settled, already-focused combo, so
+    // there's no same-keystroke race to guard against here.
     if (!m_popupOpen &&
         (evt.GetKeyCode() == WXK_DOWN || evt.GetKeyCode() == WXK_RETURN ||
          evt.GetKeyCode() == WXK_NUMPAD_ENTER)) {
@@ -457,25 +456,19 @@ public:
       return;
     }
 #endif
-    if (evt.GetKeyCode() == WXK_RETURN ||
-        evt.GetKeyCode() == WXK_NUMPAD_ENTER || evt.GetKeyCode() == WXK_TAB) {
-      // Deferred via CallAfter() rather than called directly here --
-      // confirmed as the cause of a reported bug where Enter took two
-      // presses to both select a highlighted item and close the
-      // popup. Calling Dismiss() synchronously, inside this handler,
-      // ran *before* wxComboBox's own native Enter-handling (which
-      // copies whatever's highlighted in the popup into the text
-      // field) had a chance to happen -- evt.Skip() below only marks
-      // the event to continue propagating after this handler returns,
-      // it doesn't run that native handling synchronously first. So
-      // the popup was closing before the highlighted value had
-      // actually been applied, and a second Enter was needed to
-      // finish. Deferring the dismiss to run after the current event
-      // (and its native follow-up processing) both complete fixes
-      // this -- one Enter press both selects and closes.
-      wxComboBox* combo = m_combo;
-      combo->CallAfter([combo]() { combo->Dismiss(); });
-    }
+    // Dismissing the popup on Enter/Tab used to happen here, deferred
+    // via CallAfter() -- moved to EndEdit() instead (see its own
+    // comment for why): a real, reported bug on macOS (popup staying
+    // open, rendering with visibly wrong/shrunk-looking metrics, even
+    // though the correct value *was* being entered into the cell)
+    // traced to this deferred call racing against wxGrid's own,
+    // synchronous cell-editor teardown -- by the time this deferred
+    // callback ran, the grid could already be in the middle of hiding/
+    // tearing down the cell editor as part of committing the edit,
+    // leaving Dismiss() operating on a control in an inconsistent
+    // state. EndEdit() is the actual, official wxGrid lifecycle point
+    // for "this edit is ending," synchronized with that same teardown
+    // rather than guessing at timing relative to it.
     // Tracked here (from the actual key, not inferred from a text-
     // length comparison) for OnText() below to use. An earlier version
     // compared the new text's length to the previous text's length to
@@ -599,6 +592,23 @@ public:
     }
     m_pendingValue = typed;
     *newval = typed;
+    // Dismiss the popup here, synchronously -- not deferred, and not
+    // in a key-event handler -- confirmed as the fix for a real,
+    // reported bug (see OnComboKeyDown's own comment for the fuller
+    // story): this is wxGrid's own, official lifecycle point for "the
+    // edit is committing now," called synchronously as part of the
+    // same commit process that's about to hide/tear down this cell's
+    // editor -- rather than a separately-timed callback racing against
+    // that same teardown. Safe to call unconditionally here (a no-op
+    // if the popup isn't open, e.g. a value typed without ever opening
+    // it) and confirmed safe to call *now* specifically: m_combo->
+    // GetValue() just above already reflects whatever was highlighted
+    // in the popup, so wxComboBox's own native "copy highlighted item
+    // into the text field" handling has necessarily already finished
+    // by this point -- unlike calling Dismiss() synchronously inside
+    // the key event handler itself, which ran before that native
+    // processing had a chance to happen.
+    if (m_combo) m_combo->Dismiss();
     return typed != oldval;
   }
 

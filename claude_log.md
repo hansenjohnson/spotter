@@ -1199,6 +1199,91 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## macOS dismiss bug fixed properly; fifth Windows attempt, honestly lower-confidence this time
+
+Two separate reports from the same round of real testing.
+
+**macOS: fixed, and this one is well-understood.** Selecting a value
+via keyboard (open the popup with Enter, press Enter again to select)
+correctly entered the value into the cell, but the popup itself stayed
+open, rendering with visibly wrong/shrunk-looking text. Root cause:
+the existing dismiss-on-Enter logic (`OnComboKeyDown`, from an earlier
+round's "double Enter" fix) called `Dismiss()` via `CallAfter()` --
+deferred to a later event-loop turn specifically so it would run
+*after* the combo's own native "copy highlighted item into the text
+field" processing. But that deferred callback was *also* racing
+against wxGrid's own, synchronous cell-editor teardown, which happens
+as part of committing the edit -- by the time the deferred `Dismiss()`
+call actually ran, the grid could already be mid-teardown of the cell
+editor, leaving `Dismiss()` operating on a control in an inconsistent
+state.
+
+Fixed by moving the dismiss into `EndEdit()` instead -- the actual,
+official wxGrid lifecycle method for "this edit is committing now,"
+called synchronously as part of that same commit/teardown process
+rather than via a separately-timed callback guessing at when it's
+"probably" safe to act. Confirmed still safe with respect to the
+original "double Enter" bug this replaced: `EndEdit()` reads
+`m_combo->GetValue()` to get the value to commit, which only reflects
+a just-selected item correctly if the combo's own native processing
+has already finished by that point -- meaning `EndEdit()` is
+necessarily already running *after* that native processing, unlike the
+key event handler this used to live in. Removed the old
+`CallAfter()`-deferred version entirely, rather than leaving two
+competing dismiss mechanisms in place.
+
+**Windows: still not resolved, and it's worth being honest about
+scope here.** A closer re-reading of the report revealed the previous
+round's fix (a separate, later keystroke opens the popup) doesn't
+actually match what was asked for -- and, per direct report, doesn't
+appear to work as a keyboard-only mechanism at all on Windows either
+("I can still only see the dropdown list if I click with the mouse").
+The actual request is for the very *first* Enter press -- the same one
+that starts editing the cell -- to also open the popup, matching
+macOS's behavior exactly. That's the harder problem this project has
+now failed at four separate times (synchronous Popup(); CallAfter()-
+deferred; a 60ms wxTimer-deferred; a separate-keystroke workaround),
+all reasoned through carefully and all either confirmed not to work or,
+in the case of the most recent one, apparently not triggering as
+intended at all.
+
+Fifth attempt, genuinely different from the previous four rather than
+another timing variant: added `wxTE_PROCESS_ENTER` to the combo's
+window style (in `Create()`, after the base class constructs it) --
+wxWidgets' own documented mechanism for making a Windows combobox
+generate a `wxEVT_TEXT_ENTER` command event instead of handling Enter
+"internally" (at the OS message level, per wxWidgets' own docs -- the
+same internal handling this project's leading theory has blamed for
+every previous attempt's failure). `BeginEdit()` now auto-opens the
+popup on all platforms again, including Windows (matching macOS,
+matching what was actually asked for), on the same 60ms timer as
+before. `OnComboKeyDown`'s separate-keystroke mechanism from last
+round is kept as a fallback, not removed, in case this doesn't fully
+resolve it either.
+
+Explicitly not overselling this: genuinely uncertain whether setting
+`wxTE_PROCESS_ENTER` *after* the combo already exists (rather than at
+its original construction, which happens inside the base class's
+`Create()` and isn't this project's own code to change) actually takes
+effect on MSW -- some native control styles only apply at creation
+time. Given four consecutive failed attempts at this same underlying
+problem, this needs real, hands-on testing before being trusted at
+all, more so than anything else in this project's history. If this
+doesn't work either, the next reasonable step is probably a live
+debugging session on an actual Windows machine (a breakpoint in
+`OnComboKeyDown` would immediately answer a currently-open question:
+is it even being reached for a second Enter/Down-arrow press at all,
+or is something intercepting the key before it gets there) --
+continuing to guess blindly from here doesn't seem like the most
+productive use of further attempts.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+The macOS fix is reasoned through with real confidence (see above for
+why). The Windows change compiles cleanly but its actual effectiveness
+is completely unverified -- same caveat as every Windows-specific
+change in this project, but carrying more weight here given the
+specific, repeated track record on this exact issue.
+
 ## Fourth attempt at the Windows dropdown bug: a structurally different approach, per direct suggestion
 
 The third attempt (a 60ms `wxTimer` delay instead of `CallAfter()`)
