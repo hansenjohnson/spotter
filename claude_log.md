@@ -1199,6 +1199,61 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Reverted the fifth Windows attempt (confirmed a regression); added real diagnostic logging instead of guessing further
+
+Direct, real report: the fifth attempt (`wxTE_PROCESS_ENTER` + restoring
+auto-popup-on-`BeginEdit()` for Windows) made things worse, not
+better -- now required pressing Enter twice just to see the popup, and
+once open, couldn't make a selection or type in the cell at all. Per
+direct request, reverted Windows back to the fourth attempt's state
+(no auto-popup in `BeginEdit()`; `OnComboKeyDown` handles Down arrow/a
+separate Enter press as a fallback) -- the "somewhat workable" state
+where keyboard cycling and typing-to-filter worked within the cell,
+even though the popup itself wasn't reliably openable via keyboard.
+`wxTE_PROCESS_ENTER` removed entirely, not just disabled -- it likely
+changed how the native control processes Enter in a way that
+interfered with wxGrid's own commit flow, which would directly explain
+the new "can't select or type at all" symptom.
+
+Five attempts at the underlying "auto-open the popup reliably on
+Windows" problem have now all either failed or made things worse, each
+reasoned through carefully beforehand and each wrong in a way that
+wasn't apparent until real testing. Per direct suggestion, continuing
+to guess at a sixth remote fix doesn't seem like the productive path
+forward anymore -- real diagnostic information is needed instead.
+
+Added temporary, deliberately low-tech diagnostic logging (a new
+`DropdownDebugLog()` helper) at every relevant decision point in the
+dropdown editor: `Create()` (confirms the combo is actually
+constructed), `BeginEdit()` (row/col, current `m_popupOpen` state),
+`OnComboKeyDown()` (every key code seen, and whether the Windows-
+specific popup-open branch fires), the `wxEVT_COMBOBOX_DROPDOWN`/
+`CLOSEUP` handlers (confirms whether these events fire on Windows for
+this specific combo configuration at all -- this project's `m_popupOpen`
+tracking entirely depends on them, and that's never actually been
+confirmed working on a real Windows machine), and `EndEdit()` (row/
+col, old/new value). Writes plain, timestamped lines directly to
+`<system temp dir>/spotter_dropdown_debug.log` via ordinary file I/O
+-- deliberately not `wxLogDebug()` (compiled out entirely in this
+project's release-configured builds) or `wxLogMessage()` (not
+guaranteed to be visible anywhere inside OpenCPN's own process, unlike
+a plain, independently-locatable file).
+
+Verified: rebuilt and reran the full test suite locally (246/246,
+unaffected), and confirmed the logging mechanism itself actually works
+by checking its own output after a local test run -- real, readable,
+timestamped entries for every `Create()`/`BeginEdit()`/`EndEdit()`
+call the test suite triggered. This is genuinely different from every
+previous verification in this project: not confirming a fix works
+(none is being claimed this round), but confirming the *diagnostic
+tool itself* functions correctly, so the next round of real Windows
+testing produces real, actionable data instead of another guess.
+
+Explicitly temporary -- meant to be removed once the underlying issue
+is actually diagnosed and fixed via this log's output, not to become a
+permanent feature. Log file accumulates across runs (append mode);
+deleting it before a fresh test session makes for a cleaner read.
+
 ## macOS dismiss bug fixed properly; fifth Windows attempt, honestly lower-confidence this time
 
 Two separate reports from the same round of real testing.

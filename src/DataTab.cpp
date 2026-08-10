@@ -8,6 +8,8 @@
 #include <wx/tokenzr.h>
 #include <wx/colordlg.h>
 #include <wx/checklst.h>
+#include <wx/stdpaths.h>
+#include <wx/file.h>
 #include <algorithm>
 #include <set>
 
@@ -293,6 +295,34 @@ private:
   wxCheckListBox* m_listBox;
 };
 
+// Temporary diagnostic logging, specifically to actually diagnose the
+// Windows dropdown-popup issue rather than continue guessing at it
+// remotely -- see SearchableChoiceGridCellEditor below for where this
+// is actually called. Deliberately not wxLogDebug()/wxLogMessage():
+// wxLogDebug() is compiled out entirely in non-debug wxWidgets builds
+// (which this project's own release-configured builds are), and
+// neither is guaranteed to be visible anywhere a person testing this
+// would know to look, since this runs inside OpenCPN's own process,
+// not a standalone console app with its own visible output. Writing
+// directly to a plain, easy-to-find file sidesteps both problems --
+// works regardless of build configuration, and its location can be
+// given as simple, exact instructions.
+//
+// Meant to be removed again once the underlying issue is actually
+// diagnosed and fixed -- this is a debugging tool, not a permanent
+// feature.
+static void DropdownDebugLog(const wxString& msg) {
+  wxString path = wxStandardPaths::Get().GetTempDir() +
+                  wxFileName::GetPathSeparator() +
+                  "spotter_dropdown_debug.log";
+  wxFile file;
+  bool ok = wxFileExists(path) ? file.Open(path, wxFile::write_append)
+                                : file.Create(path, false);
+  if (!ok) return;
+  file.Write(wxDateTime::Now().FormatISOCombined(' ') + "  " + msg + "\n");
+  file.Close();
+}
+
 class SearchableChoiceGridCellEditor : public wxGridCellChoiceEditor {
 public:
   explicit SearchableChoiceGridCellEditor(const wxArrayString &choices,
@@ -346,28 +376,10 @@ public:
               wxEvtHandler* evtHandler) override {
     wxGridCellChoiceEditor::Create(parent, id, evtHandler);
     m_combo = dynamic_cast<wxComboBox*>(GetControl());
+    DropdownDebugLog(wxString::Format("Create(): m_combo=%s",
+                                      m_combo ? "valid" : "NULL"));
     if (m_combo) {
       m_combo->Bind(wxEVT_TEXT, &SearchableChoiceGridCellEditor::OnText, this);
-#ifdef __WXMSW__
-      // Experimental, not confirmed working: on Windows, a native
-      // combobox handles the Enter key "internally" (wxWidgets' own
-      // documented term) unless this style is set, in which case it
-      // instead generates a wxEVT_TEXT_ENTER command event that this
-      // project's own code could handle -- see BeginEdit() below for
-      // why this project needs the native handling *not* to run.
-      // Genuinely uncertain whether setting this post-construction
-      // (rather than at the combo's original creation, which this
-      // project doesn't control -- that happens inside the base
-      // class's Create() above) actually changes the native control's
-      // behavior on MSW; some native styles only take effect if set at
-      // creation. Left in specifically because it's low-risk to try
-      // (at worst, no effect) and is a genuinely different mechanism
-      // from every previous attempt at this same underlying problem,
-      // not a variation on the same timing-based approach that's
-      // already failed multiple times.
-      m_combo->SetWindowStyleFlag(m_combo->GetWindowStyleFlag() |
-                                  wxTE_PROCESS_ENTER);
-#endif
       // The dropdown popup closes immediately on a mouse click, but
       // (reported) not when a choice is picked via the keyboard
       // (Enter) -- wxGrid's own Enter handling commits the cell edit,
@@ -387,10 +399,14 @@ public:
       // Windows, whether a given Enter press should open the popup or
       // select-and-close it. Supported on the same platforms this
       // project already targets (MSW, GTK 2.10+, OSX/Cocoa).
-      m_combo->Bind(wxEVT_COMBOBOX_DROPDOWN,
-                    [this](wxCommandEvent&) { m_popupOpen = true; });
-      m_combo->Bind(wxEVT_COMBOBOX_CLOSEUP,
-                    [this](wxCommandEvent&) { m_popupOpen = false; });
+      m_combo->Bind(wxEVT_COMBOBOX_DROPDOWN, [this](wxCommandEvent&) {
+        m_popupOpen = true;
+        DropdownDebugLog("wxEVT_COMBOBOX_DROPDOWN fired -- m_popupOpen=true");
+      });
+      m_combo->Bind(wxEVT_COMBOBOX_CLOSEUP, [this](wxCommandEvent&) {
+        m_popupOpen = false;
+        DropdownDebugLog("wxEVT_COMBOBOX_CLOSEUP fired -- m_popupOpen=false");
+      });
     }
   }
 
@@ -407,24 +423,32 @@ public:
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
+    DropdownDebugLog(wxString::Format(
+        "BeginEdit(row=%d, col=%d) -- combo created, m_popupOpen=%s", row,
+        col, m_popupOpen ? "true" : "false"));
+#ifndef __WXMSW__
     // Delayed via a real, short wall-clock timer (60ms) rather than
     // CallAfter() alone -- confirmed necessary on Windows for an
     // earlier, real, reported regression that persisted even with
     // CallAfter() there (the popup flashing open and then immediately
     // closing again, confirmed via direct, real-machine testing, not
-    // just reasoned about). Kept for all platforms now, combined with
-    // wxTE_PROCESS_ENTER above on Windows specifically (an attempt at
-    // addressing the actual root cause -- a native Win32 combobox
-    // handling Enter "internally," per wxWidgets' own documentation --
-    // rather than only timing around it). Genuinely uncertain whether
-    // this combination fully resolves it on Windows: this exact
-    // auto-popup-on-BeginEdit approach, on its own, was already tried
-    // and confirmed not sufficient there across three earlier attempts
-    // (synchronous, CallAfter()-deferred, and this same 60ms timer
-    // without wxTE_PROCESS_ENTER). OnComboKeyDown below still handles
-    // Down arrow/a subsequent Enter as a fallback either way, in case
-    // this one doesn't fully solve it either.
+    // just reasoned about). Kept here for macOS/Linux, where it's
+    // confirmed working correctly.
+    //
+    // Deliberately *not* run on Windows -- see below. Several attempts
+    // at making this same mechanism work there (synchronous Popup();
+    // CallAfter()-deferred; this same 60ms timer; this same timer
+    // combined with wxTE_PROCESS_ENTER) have all either been confirmed
+    // not to fix the underlying "opens then immediately closes"
+    // problem, or introduced new regressions of their own (the
+    // wxTE_PROCESS_ENTER attempt broke the ability to select or type
+    // in the cell at all, confirmed via direct testing -- reverted
+    // rather than left in). Per direct request, Windows is reverted
+    // to a simpler, confirmed-partially-working state below while a
+    // real debugging session (rather than further remote guessing) is
+    // set up -- see claude_log.md for the reasoning and next steps.
     if (m_combo) m_popupTimer.StartOnce(60);
+#endif
   }
 
   void OnPopupTimer(wxTimerEvent&) {
@@ -432,19 +456,21 @@ public:
   }
 
   void OnComboKeyDown(wxKeyEvent& evt) {
+    DropdownDebugLog(wxString::Format(
+        "OnComboKeyDown: keycode=%d, m_popupOpen=%s", evt.GetKeyCode(),
+        m_popupOpen ? "true" : "false"));
 #ifdef __WXMSW__
-    // Windows-specific fallback: BeginEdit() above also tries to
-    // auto-open the popup (see its own comment) -- if that hasn't
-    // worked by the time a later key event reaches here, Down arrow,
-    // or Enter while the popup isn't already open, opens it instead.
-    // Deliberately *not* deferred/delayed in any way, unlike every
-    // attempt at auto-opening on BeginEdit()'s own triggering
-    // keystroke: this is a genuinely separate, later key event,
-    // delivered to an already-settled, already-focused combo, so
-    // there's no same-keystroke race to guard against here.
+    // Windows-specific: BeginEdit() deliberately does *not* try to
+    // auto-open the popup here (see its own comment for the full
+    // history/reasoning) -- Down arrow, or Enter while the popup isn't
+    // already open, opens it instead. Deliberately *not* deferred/
+    // delayed in any way: this is a genuinely separate, later key
+    // event, delivered to an already-settled, already-focused combo,
+    // not competing with BeginEdit's own triggering keystroke.
     if (!m_popupOpen &&
         (evt.GetKeyCode() == WXK_DOWN || evt.GetKeyCode() == WXK_RETURN ||
          evt.GetKeyCode() == WXK_NUMPAD_ENTER)) {
+      DropdownDebugLog("  -> calling m_combo->Popup() now");
       m_combo->Popup();
       m_lastKeyWasDelete = false;
       // Deliberately not evt.Skip() here -- this key press's whole
@@ -577,6 +603,9 @@ public:
     wxUnusedVar(col);
     if (!m_combo) return false;
     wxString typed = m_combo->GetValue();
+    DropdownDebugLog(wxString::Format(
+        "EndEdit(row=%d, col=%d): oldval=\"%s\", typed=\"%s\"", row, col,
+        oldval, typed));
     if (typed != oldval && m_allChoices.Index(typed) == wxNOT_FOUND) {
       int answer = wxMessageBox(
           "\"" + typed +
