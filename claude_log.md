@@ -1199,6 +1199,50 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Regression: row-height margin applied to macOS too, when it was only ever needed on Windows
+
+Direct, real report from actually using the plugin on macOS: rows were
+no longer growing without bound (confirming the previous round's fix
+for that specific bug worked), but were now *consistently* larger than
+necessary -- and, per direct account, macOS's row auto-sizing was
+already working correctly before either row-height fix in this project
+existed at all.
+
+Root cause: a straightforward oversight, not a new mechanism. The
+`+6px` safety margin (added originally for a real, Windows-specific
+report of rows coming out too short) was applied completely
+unconditionally, on every platform, rather than scoped to Windows
+specifically. It was reasoned through carefully at the time as a
+platform-metric difference (GDI vs. Core Text/Pango), but never
+actually gated behind a platform check -- so macOS, which never had
+the undersizing problem to begin with, got the same padding anyway,
+making its otherwise-correct rows larger than needed.
+
+Fixed by wrapping the margin in `#ifdef __WXMSW__`, so it only applies
+on an actual Windows build. Also changed what row height
+`ReapplyRowHeights()` resets to before calling `AutoSizeRows()` (added
+last round to fix the compounding-growth bug): from
+`GetDefaultRowSize()` to a flat `1`. Reasoning: wx's own generic
+default row height isn't guaranteed to match this app's own custom
+cell font (see `SetGridFontSize()`), and since `AutoSizeRows()` won't
+shrink a row below whatever floor it's given, resetting to a value
+that might itself be larger than a given row's real content need would
+have reproduced a milder version of the exact same class of problem.
+Resetting to `1` removes that risk entirely -- `AutoSizeRows()` is then
+free to grow every row purely from actual content, with no influence
+from any assumed baseline.
+
+Verified: rebuilt and reran the full test suite (245/245, including
+the 3 stability tests added last round for the compounding-growth
+regression, which still pass unchanged -- they check that repeated
+calls produce identical heights, which holds regardless of what the
+reset baseline or platform-specific margin actually is). No new
+automated test added specifically for "the Windows-only margin isn't
+applied on other platforms," since that would just be testing
+wxWidgets' own `__WXMSW__` macro definition, not anything this
+project's own code controls or is at risk of getting wrong the way the
+compounding-growth logic was.
+
 ## Regression: row heights compounding-growing every time a tab was revisited
 
 Direct, real report from actually using the plugin on macOS: a new

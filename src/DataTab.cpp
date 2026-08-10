@@ -1038,36 +1038,41 @@ void DataTab::SetGridFontSize(int pointSize) {
 
 void DataTab::ReapplyRowHeights() {
   if (!m_grid) return;
-  // Reset every row to a small baseline *before* AutoSizeRows() below,
+  // Reset every row to a minimal height *before* AutoSizeRows() below,
   // so it's forced to measure fresh against actual current content --
-  // confirmed as necessary to fix a real, reported regression from the
-  // safety-margin padding further down: AutoSizeRows() treats a row's
-  // *current* height as a floor and won't shrink it, only grow it if
-  // needed. Without this reset, every call after the first saw an
-  // already-padded height, left it alone (already "big enough" as far
-  // as AutoSizeRows() was concerned), and then had another +6px added
-  // on top of that -- so row heights kept growing every time a tab was
-  // switched away from and back to, compounding indefinitely instead
-  // of applying the margin once.
+  // confirmed as necessary to fix a real, reported regression: without
+  // this reset, AutoSizeRows() treats a row's *current* height as a
+  // floor and won't shrink it, only grow it if needed, so repeated
+  // calls (e.g. on every tab switch) kept compounding whatever padding
+  // was added below on top of an already-padded height. 1px specifically
+  // (not e.g. GetDefaultRowSize()) -- wx's own generic default row
+  // height isn't guaranteed to match this app's own custom cell font
+  // (see SetGridFontSize()), and using it as the reset floor could
+  // itself end up larger than a given row's real content needs, for
+  // the same reason AutoSizeRows() can't be trusted to shrink below
+  // whatever floor it's given.
   for (int row = 0; row < m_grid->GetNumberRows(); row++) {
-    m_grid->SetRowSize(row, m_grid->GetDefaultRowSize());
+    m_grid->SetRowSize(row, 1);
   }
   m_grid->AutoSizeRows();
+#ifdef __WXMSW__
   // A small safety margin beyond whatever AutoSizeRows() itself
-  // calculated -- a real, reported bug: rows came out too short to
-  // comfortably fit their text on Windows specifically (fixable by
-  // hand via drag-resize, confirming it's a sizing-calculation gap,
-  // not a font/rendering problem). AutoSizeRows()'s calculation
-  // ultimately depends on the platform's own font-metric APIs (GDI on
-  // Windows vs. Core Text/Pango elsewhere), which are known to differ
-  // in how tightly they report a line's height -- rather than trying
-  // to second-guess or patch wxWidgets' own internal calculation, this
-  // just pads whatever it comes up with by a few pixels, which can
-  // only help against undersizing and costs nothing meaningful in the
-  // rare case a platform's calculation was already exactly right.
+  // calculated -- a real, reported bug, but specifically on Windows:
+  // rows came out too short to comfortably fit their text there
+  // (fixable by hand via drag-resize, confirming it's a sizing-
+  // calculation gap, not a font/rendering problem). AutoSizeRows()'s
+  // calculation ultimately depends on the platform's own font-metric
+  // APIs (GDI on Windows vs. Core Text/Pango elsewhere), which are
+  // known to differ in how tightly they report a line's height.
+  // Scoped to Windows specifically -- a real, reported regression from
+  // an earlier version of this fix: applied unconditionally on every
+  // platform, this same padding made macOS's rows larger than
+  // necessary, even though AutoSizeRows() alone was already correct
+  // there before this fix existed at all.
   for (int row = 0; row < m_grid->GetNumberRows(); row++) {
     m_grid->SetRowSize(row, m_grid->GetRowSize(row) + 6);
   }
+#endif
   m_grid->ForceRefresh();
 }
 
