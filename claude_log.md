@@ -1199,6 +1199,62 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Fourth attempt at the Windows dropdown bug: a structurally different approach, per direct suggestion
+
+The third attempt (a 60ms `wxTimer` delay instead of `CallAfter()`)
+was confirmed, via real testing, to *not* fix it -- same symptom as
+every previous attempt. Rather than trying a fourth timing variant on
+the same underlying approach, this was a direct, sensible suggestion:
+stop trying to auto-open the popup as part of `BeginEdit()` on Windows
+at all (three attempts at that specifically -- synchronous, `CallAfter()`-
+deferred, and timer-deferred -- all raced against the same triggering
+Enter keystroke and all lost that race), and instead give Windows a
+different, later keystroke to open it with -- one that isn't competing
+with anything.
+
+Confirmed via direct testing that the popup *did* work correctly when
+opened by mouse click in an earlier version -- meaning `Popup()` itself
+isn't broken on Windows, only this project's specific attempts at
+calling it automatically, synchronously with or shortly after the same
+keystroke that starts cell editing.
+
+Implemented: `BeginEdit()`'s auto-popup call is now wrapped in
+`#ifndef __WXMSW__` -- unchanged, proven-working behavior on macOS/
+Linux; not run at all on Windows. On Windows, `OnComboKeyDown` (already
+existing, already bound to the combo's own key events) now handles
+Down arrow, or Enter while the popup isn't already open (tracked via a
+new `m_popupOpen` bool, kept in sync via `wxEVT_COMBOBOX_DROPDOWN`/
+`wxEVT_COMBOBOX_CLOSEUP` -- cross-platform-supported events, not a
+Windows-only mechanism, but only actually consulted in the
+Windows-specific code path here), by calling `Popup()` directly, with
+no delay or deferral of any kind -- correct in this case specifically
+because this key event is genuinely new and separate, delivered to an
+already-settled, already-focused combo, not one racing against
+`BeginEdit()`'s own triggering keystroke the way every previous
+attempt was.
+
+User-facing result on Windows: press Enter (or Down arrow) to start
+editing a dropdown cell -- the combo becomes focused but the popup
+doesn't open yet (same limitation as the "mouse click only" version
+this project had before any of these attempts) -- then press Enter
+(or Down arrow) *again*, or Down arrow, to open the popup; from there,
+arrow keys navigate and Enter selects-and-closes, both already
+supported and unaffected by this change. Not identical to macOS's
+single-keystroke experience, but fully keyboard-only, with no mouse
+required at any point -- matching what was actually asked for, even if
+the exact number of keystrokes differs by platform.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+The `#ifdef __WXMSW__` branch cannot be compiled or exercised at all
+in this Linux-only development environment (the preprocessor excludes
+it entirely on any non-Windows build), so it was checked instead by
+careful, deliberate manual re-reading for syntax correctness rather
+than a compiler -- genuinely lower-confidence than every other change
+in this project, which have all at least compiled successfully
+somewhere before being sent over. This absolutely needs a real Windows
+build and real hands-on testing before being trusted, more so than
+usual.
+
 ## Third attempt at the Windows-only dropdown-closes-immediately bug
 
 Direct, more precise report: the dropdown-flashes-open-then-closes

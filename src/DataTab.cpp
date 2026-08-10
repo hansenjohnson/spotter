@@ -370,6 +370,16 @@ public:
       m_popupTimer.SetOwner(m_combo);
       m_combo->Bind(wxEVT_TIMER, &SearchableChoiceGridCellEditor::OnPopupTimer,
                     this);
+      // Tracked here (rather than queried on demand -- wxComboBox has
+      // no reliable cross-platform "is the popup currently open?"
+      // query) specifically so OnComboKeyDown below can tell, on
+      // Windows, whether a given Enter press should open the popup or
+      // select-and-close it. Supported on the same platforms this
+      // project already targets (MSW, GTK 2.10+, OSX/Cocoa).
+      m_combo->Bind(wxEVT_COMBOBOX_DROPDOWN,
+                    [this](wxCommandEvent&) { m_popupOpen = true; });
+      m_combo->Bind(wxEVT_COMBOBOX_CLOSEUP,
+                    [this](wxCommandEvent&) { m_popupOpen = false; });
     }
   }
 
@@ -386,30 +396,37 @@ public:
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
+#ifndef __WXMSW__
     // Delayed via a real, short wall-clock timer (60ms) rather than
-    // CallAfter() alone -- confirmed necessary for a real, reported
-    // regression that persisted even after switching to CallAfter():
-    // on Windows specifically, the popup still flashed open and
-    // immediately closed again, before a selection could be made.
-    // CallAfter() only guarantees "runs on the next idle cycle," which
-    // can still race against the *native* Win32 combobox control's own,
-    // separate handling of the same triggering Enter keystroke --
-    // wxWidgets' own documentation confirms that on Windows, pressing
-    // Enter in a combobox is "processed internally by the control"
-    // (i.e. at the OS message level, entirely outside wx's C++ event
-    // system) unless wxTE_PROCESS_ENTER is set, which this control
-    // doesn't have. If that native, OS-level handling runs *after*
-    // this call opens the popup, it can toggle it back closed --
-    // matching the exact symptom reported (opens then immediately
-    // closes). A short, genuine timer delay -- not just "next idle
-    // cycle," an actual number of milliseconds -- gives that native
-    // processing time to actually finish first: if it also opens the
-    // popup as part of its own handling, this call is then a harmless
-    // no-op on an already-open popup, rather than racing to open it
-    // first and having the native handling close it again afterward.
-    // 60ms is short enough to be imperceptible as a delay but should
-    // be well clear of same-keystroke residual message processing.
+    // CallAfter() alone -- confirmed necessary on Windows for a real,
+    // reported regression that persisted even after switching to
+    // CallAfter() there (see the #else branch below for why this
+    // whole approach was ultimately abandoned on Windows specifically,
+    // after three separate attempts). Kept here for macOS/Linux, where
+    // it's confirmed working correctly and there's no equivalent
+    // native-control-level Enter handling to race against.
     if (m_combo) m_popupTimer.StartOnce(60);
+#else
+    // On Windows, the popup is deliberately *not* auto-opened here at
+    // all. Three separate attempts (calling Popup() synchronously;
+    // deferring it via CallAfter(); deferring it via a 60ms wxTimer)
+    // all still showed the exact same symptom -- the popup flashing
+    // open and then immediately closing again, confirmed via direct,
+    // real-machine testing each time, not just reasoned about. Per
+    // direct suggestion, rather than continuing to guess at timing
+    // fixes for a race against the *same* Enter keystroke that started
+    // the cell edit in the first place (wxWidgets' own docs confirm a
+    // native Win32 combobox handles Enter "internally," at the OS
+    // message level, outside wx's own event system entirely, unless
+    // wxTE_PROCESS_ENTER is set -- which is what every previous
+    // attempt here was actually racing against), Windows instead opens
+    // the popup in response to a *separate*, later keystroke -- Down
+    // arrow, or a second Enter press -- handled in OnComboKeyDown
+    // below. That's a genuinely new, distinct key event delivered to
+    // an already-settled, already-focused control, not one competing
+    // with BeginEdit's own triggering keystroke the way every previous
+    // attempt here did, so it needs no delay or deferral at all.
+#endif
   }
 
   void OnPopupTimer(wxTimerEvent&) {
@@ -417,6 +434,29 @@ public:
   }
 
   void OnComboKeyDown(wxKeyEvent& evt) {
+#ifdef __WXMSW__
+    // Windows-specific: the popup isn't auto-opened in BeginEdit()
+    // here at all (see its own comment for the full reasoning) --
+    // Down arrow, or Enter while the popup isn't already open, opens
+    // it instead. Deliberately *not* deferred/delayed in any way,
+    // unlike every attempt at auto-opening on BeginEdit()'s own
+    // triggering keystroke: this is a genuinely separate, later key
+    // event, delivered to an already-settled, already-focused combo,
+    // so there's no same-keystroke race to guard against here.
+    if (!m_popupOpen &&
+        (evt.GetKeyCode() == WXK_DOWN || evt.GetKeyCode() == WXK_RETURN ||
+         evt.GetKeyCode() == WXK_NUMPAD_ENTER)) {
+      m_combo->Popup();
+      m_lastKeyWasDelete = false;
+      // Deliberately not evt.Skip() here -- this key press's whole
+      // job was to open the popup; letting it also fall through to
+      // native/default processing (or the dismiss-on-Enter logic
+      // just below) risks exactly the kind of same-keystroke double-
+      // handling that caused the original bug this whole mechanism
+      // exists to avoid.
+      return;
+    }
+#endif
     if (evt.GetKeyCode() == WXK_RETURN ||
         evt.GetKeyCode() == WXK_NUMPAD_ENTER || evt.GetKeyCode() == WXK_TAB) {
       // Deferred via CallAfter() rather than called directly here --
@@ -576,6 +616,7 @@ private:
   bool m_updatingText = false;
   bool m_lastKeyWasDelete = false;
   wxTimer m_popupTimer;
+  bool m_popupOpen = false;
 };
 
 }  // namespace
