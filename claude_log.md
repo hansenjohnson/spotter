@@ -1199,6 +1199,49 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## First real diagnostic log data: genuine progress, one specific gap identified
+
+The diagnostic logging from the previous entry paid off immediately --
+real data, not another guess. Two clear findings from the first real
+log:
+
+**Confirmed working:** the Down-arrow fallback in `OnComboKeyDown`
+actually opens the popup on Windows -- `Popup()` gets called,
+`wxEVT_COMBOBOX_DROPDOWN` fires, `m_popupOpen` correctly flips to
+`true`, and subsequent arrow-key navigation within the open popup was
+logged working too. This directly contradicts the more general "only
+works with a mouse click" report from two rounds ago -- strong
+evidence that report was made against the intervening, since-reverted
+`wxTE_PROCESS_ENTER` build, not this one.
+
+**Genuine gap identified, not yet fixed:** no `WXK_RETURN` (Enter)
+keypress appeared anywhere in the log at all -- every `EndEdit` fired
+without one, meaning cells were being committed by clicking elsewhere
+with the mouse throughout that test session. That means the log
+doesn't yet show what happens if Enter is pressed while the popup is
+open (the "select an option and close" case) -- genuinely unknown
+from this data, not confirmed broken.
+
+Improved the logging to make the next round unambiguous: added
+`m_debugRow`/`m_debugCol` tracking (set in `BeginEdit()`), included in
+every subsequent log line -- the first log's lines couldn't always be
+confidently attributed to a specific cell when multiple edits happened
+in quick succession, which made a couple of sequences genuinely hard
+to interpret. Also added an explicit log line at the actual
+`m_combo->Dismiss()` call site in `EndEdit()`, not just at `EndEdit`'s
+own entry, so it's unambiguous whether that specific line actually
+executes.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected),
+and confirmed the improved log format's actual output locally (cell
+coordinates now appear on every relevant line, as intended). Next
+concrete ask: open a dropdown cell, use Down arrow or a second Enter
+to open the popup, navigate with arrow keys, then specifically press
+Enter to select an option and close it -- that specific sequence,
+with the improved logging, should finally show whether the "Enter
+selects and closes" path works on Windows or not, rather than
+continuing to infer it from incomplete data.
+
 ## Reverted the fifth Windows attempt (confirmed a regression); added real diagnostic logging instead of guessing further
 
 Direct, real report: the fifth attempt (`wxTE_PROCESS_ENTER` + restoring

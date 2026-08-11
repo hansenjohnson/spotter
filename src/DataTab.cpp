@@ -401,11 +401,17 @@ public:
       // project already targets (MSW, GTK 2.10+, OSX/Cocoa).
       m_combo->Bind(wxEVT_COMBOBOX_DROPDOWN, [this](wxCommandEvent&) {
         m_popupOpen = true;
-        DropdownDebugLog("wxEVT_COMBOBOX_DROPDOWN fired -- m_popupOpen=true");
+        DropdownDebugLog(wxString::Format(
+            "wxEVT_COMBOBOX_DROPDOWN fired (row=%d, col=%d) -- "
+            "m_popupOpen=true",
+            m_debugRow, m_debugCol));
       });
       m_combo->Bind(wxEVT_COMBOBOX_CLOSEUP, [this](wxCommandEvent&) {
         m_popupOpen = false;
-        DropdownDebugLog("wxEVT_COMBOBOX_CLOSEUP fired -- m_popupOpen=false");
+        DropdownDebugLog(wxString::Format(
+            "wxEVT_COMBOBOX_CLOSEUP fired (row=%d, col=%d) -- "
+            "m_popupOpen=false",
+            m_debugRow, m_debugCol));
       });
     }
   }
@@ -423,6 +429,8 @@ public:
     // for editing, matching what "active" should mean for a dropdown
     // cell -- scrollable and selectable immediately, mouse optional.
     wxGridCellChoiceEditor::BeginEdit(row, col, grid);
+    m_debugRow = row;
+    m_debugCol = col;
     DropdownDebugLog(wxString::Format(
         "BeginEdit(row=%d, col=%d) -- combo created, m_popupOpen=%s", row,
         col, m_popupOpen ? "true" : "false"));
@@ -457,7 +465,8 @@ public:
 
   void OnComboKeyDown(wxKeyEvent& evt) {
     DropdownDebugLog(wxString::Format(
-        "OnComboKeyDown: keycode=%d, m_popupOpen=%s", evt.GetKeyCode(),
+        "OnComboKeyDown(row=%d, col=%d): keycode=%d, m_popupOpen=%s",
+        m_debugRow, m_debugCol, evt.GetKeyCode(),
         m_popupOpen ? "true" : "false"));
 #ifdef __WXMSW__
     // Windows-specific: BeginEdit() deliberately does *not* try to
@@ -637,7 +646,13 @@ public:
     // by this point -- unlike calling Dismiss() synchronously inside
     // the key event handler itself, which ran before that native
     // processing had a chance to happen.
-    if (m_combo) m_combo->Dismiss();
+    if (m_combo) {
+      DropdownDebugLog(wxString::Format(
+          "  -> calling m_combo->Dismiss() now (row=%d, col=%d, "
+          "m_popupOpen was %s)",
+          m_debugRow, m_debugCol, m_popupOpen ? "true" : "false"));
+      m_combo->Dismiss();
+    }
     return typed != oldval;
   }
 
@@ -656,6 +671,8 @@ private:
   bool m_lastKeyWasDelete = false;
   wxTimer m_popupTimer;
   bool m_popupOpen = false;
+  int m_debugRow = -1;
+  int m_debugCol = -1;
 };
 
 }  // namespace
