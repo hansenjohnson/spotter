@@ -214,12 +214,22 @@ private:
   static wxString SanitizeForFilename(const wxString& s);
 
   SpotterPlugin* m_plugin;
-  wxWindow* m_root = nullptr;  // set once in the constructor; lets
-                               // OnStatusTick() trigger a re-layout
-                               // after a label's natural size changes
-                               // (SetLabel() alone doesn't reliably
-                               // make the containing wxWrapSizer
-                               // recompute on its own)
+  // Set once in BuildStatusBar() -- lets OnStatusTick() trigger a
+  // re-layout of just the status bar's own row after a label's
+  // natural size changes (SetLabel() alone doesn't reliably make the
+  // containing wxWrapSizer recompute on its own), without touching
+  // the rest of the window's layout at all. Previously did this via
+  // m_root->Layout() (a whole-window reference), confirmed via real
+  // diagnostic logging as the cause of a real, reported bug --
+  // re-laying-out the *entire* window every second, unconditionally,
+  // was disrupting whatever grid cell might currently be mid-edit: on
+  // Windows specifically, this was disrupting an actively-editing
+  // dropdown cell roughly once a second, visible in real diagnostic
+  // logging as a repeating BeginEdit/EndEdit cycle with no
+  // corresponding key event, making it effectively impossible to
+  // finish typing or selecting anything in a dropdown cell before the
+  // next tick tore the edit down again.
+  wxSizer* m_statusBarSizer = nullptr;
   wxString m_dataDir;
   wxString m_filePrefix;
   wxString m_surveyName;

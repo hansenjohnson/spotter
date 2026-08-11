@@ -1199,6 +1199,77 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Root cause found via real log data: the 1-second status timer was tearing down active cell edits
+
+A third round of diagnostic logging (with the new focus-event
+tracking from the previous entry) showed something genuinely
+different from every dropdown-specific theory tried so far. The
+repeating pattern in the log:
+
+```
+BeginEdit(row=3, col=5)
+...KILL_FOCUS / SET_FOCUS / KILL_FOCUS...
+EndEdit(row=3, col=5): oldval="", typed=""
+```
+
+-- recurring roughly once per second, for many seconds, with *no key
+event* triggering it at all. This isn't a dropdown-specific problem or
+a timing race on the popup -- something in the plugin itself, running
+on a roughly 1-second cadence, was forcibly ending and restarting
+whatever cell was being edited, regardless of what column type it was
+or what the user was doing.
+
+This project has a known, existing 1-second status bar update timer
+(`LogWindow::OnStatusTick()`, `m_statusTimer.Start(1000)`). Its very
+last line was `if (m_root) m_root->Layout();` -- called
+unconditionally, every second, on `m_root`, the top-level panel for
+the *entire* window (containing the grid/notebook, not just the
+status bar). `wxWindow::Layout()` re-lays-out everything in that
+window's sizer hierarchy -- on Windows specifically, this was
+apparently disruptive enough to an actively-editing grid cell's
+embedded combo/text control to tear the edit down, matching the
+observed cadence exactly (the timer's own 1000ms interval).
+
+The comment on that line explained its actual, narrower purpose: after
+`SetLabel()` on a status field (e.g. the GPS warning going from empty
+to a real message), the status bar's own `wxWrapSizer` needs to
+recompute how its fields wrap -- `SetLabel()` alone doesn't trigger
+that. But achieving that only ever required re-laying-out the status
+bar's own row, not the entire window.
+
+Fixed: `BuildStatusBar()` now stores its own `wxBoxSizer` (`box`, the
+direct parent of the status fields' `wxWrapSizer`) as a new member,
+`m_statusBarSizer`. `OnStatusTick()` now calls
+`m_statusBarSizer->Layout()` instead of `m_root->Layout()` --
+`wxSizer::Layout()` recomputes just that sizer's own children, which
+achieves the exact same intended effect (the status bar actually
+re-wrapping) without touching any other part of the window, including
+whatever grid cell might currently be mid-edit. Removed `m_root`
+entirely, rather than leaving it as now-genuinely-unused state --
+its only purpose was supporting the removed call.
+
+This is a meaningfully different, and more confident, kind of fix than
+every previous attempt in this saga: not a guess about wxWidgets/
+Windows combobox timing internals, but a concrete, directly-observed
+mechanism (an existing timer's own side effect) whose fix doesn't
+depend on any platform-specific behavior at all -- `wxSizer::Layout()`
+achieving a narrower effect than `wxWindow::Layout()` is standard,
+well-understood wxWidgets behavior on every platform, not something
+specific to MSW. Worth noting this also means the bug wasn't
+dropdown-specific -- any grid cell actively being edited for more than
+about a second, on any column type, could plausibly have been affected
+the same way, not just dropdown cells specifically.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+Confirmed `m_root` had no other remaining uses before removing it
+entirely (only historical comments referencing what it used to do).
+The actual practical effect -- whether the dropdown-editing experience
+on Windows is now usable end-to-end -- still needs real testing to
+confirm, the same as every platform-specific claim in this project,
+but the underlying mechanism identified here is concrete and directly
+observed, not speculative, which every previous entry in this saga
+was.
+
 ## Second round of diagnostic data: a genuinely new theory (focus, not timing)
 
 A more targeted log, following the previous entry's specific ask,

@@ -437,7 +437,6 @@ LogWindow::LogWindow(wxWindow* parent, SpotterPlugin* plugin,
   m_surveyName = info.survey;
 
   wxPanel* root = new wxPanel(this);
-  m_root = root;
   wxBoxSizer* rootSizer = new wxBoxSizer(wxVERTICAL);
 
   // Status bar at the top (always visible regardless of which tab is
@@ -1220,6 +1219,7 @@ void LogWindow::BuildStatusBar(wxSizer* rootSizer, wxWindow* root) {
   addField("Effort:", &m_effortStatusLabel);
 
   box->Add(wrap, 0, wxEXPAND);
+  m_statusBarSizer = box;
   rootSizer->Add(box, 0, wxEXPAND | wxALL, 4);
 }
 
@@ -1361,10 +1361,22 @@ void LogWindow::OnStatusTick() {
   // Label text lengths just changed (e.g. the GPS warning field going
   // from empty to a real message, or back), which can change what the
   // status bar's wxWrapSizer needs to do -- SetLabel() alone doesn't
-  // reliably trigger that recalculation on its own (same underlying
-  // class of issue as the resize-time Layout() calls elsewhere in this
-  // file), so ask for it explicitly.
-  if (m_root) m_root->Layout();
+  // reliably trigger that recalculation on its own -- so ask for it
+  // explicitly. Scoped to just this row's own sizer (m_statusBarSizer,
+  // set once in BuildStatusBar()) rather than the previous
+  // m_root->Layout() -- confirmed via real diagnostic logging as the
+  // cause of a real, reported bug: re-laying-out the *entire* window
+  // every single second, unconditionally, was disrupting whatever grid
+  // cell happened to be actively being edited at that moment (visible
+  // in the log as a repeating BeginEdit/EndEdit cycle with no
+  // corresponding key event, roughly once a second) -- on Windows
+  // specifically, severely enough to make it effectively impossible to
+  // finish typing or selecting anything in a dropdown cell before the
+  // next tick tore the edit down again. wxSizer::Layout() recomputes
+  // just that sizer's own children, achieving the same intended effect
+  // (the status bar's wrap sizer actually re-wrapping) without
+  // touching anything else in the window at all.
+  if (m_statusBarSizer) m_statusBarSizer->Layout();
 }
 
 void LogWindow::BuildSummaryTab() {
