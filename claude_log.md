@@ -1199,6 +1199,101 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Found the actual mechanism, in wxWidgets' own source -- not another guess
+
+A detailed, step-by-step user narrative matched against its
+corresponding log finally pinned this down precisely. The key
+sequence, on a freshly-created cell with no stale state carried over
+from anywhere:
+
+```
+BeginEdit(row=2, col=6) -- m_popupOpen=false
+OnComboKeyDown: keycode=317 (Down arrow)
+  -> calling m_combo->Popup() now
+wxEVT_COMBOBOX_DROPDOWN fired -- m_popupOpen=true    (popup genuinely opened)
+KILL_FOCUS / SET_FOCUS / KILL_FOCUS
+EndEdit: oldval="", typed=""                          (and immediately ended anyway)
+```
+
+This exact pattern -- popup opens, confirmed by the DROPDOWN event
+actually firing, then the whole cell edit ends within the same
+instant -- appeared every single time the Down-arrow fallback
+successfully opened the popup, with total consistency across the
+whole log.
+
+Root cause, found by reading wxWidgets' actual source for
+`wxGridCellChoiceEditor` (the base class this project's dropdown
+editor builds on) rather than continuing to guess:
+
+```cpp
+void wxGridCellChoiceEditor::BeginEdit(int row, int col, wxGrid* grid) {
+  ...
+  m_control->Bind(wxEVT_COMBOBOX_CLOSEUP,
+                  &wxGridCellChoiceEditor::OnComboCloseUp, this);
+  ...
+}
+
+void wxGridCellChoiceEditor::OnComboCloseUp(wxCommandEvent&) {
+  ...
+  // Close the grid editor when the combobox closes, otherwise it
+  // leaves the dropdown arrow visible in the cell.
+  evtHandler->DismissEditor();
+}
+```
+
+The base class itself already binds `wxEVT_COMBOBOX_CLOSEUP` and ends
+the *entire cell edit* the instant the popup closes -- by design, so
+the dropdown arrow doesn't visibly stick open after a normal
+selection. This explains the whole pattern precisely: calling
+`m_combo->Popup()` synchronously, from within a key event handler,
+reliably opens the popup successfully but *also* reliably triggers an
+immediate, spurious `CLOSEUP` right afterward -- and the base class's
+own (correct, by-design) handler for that event then ends the edit,
+exactly matching what every log has shown. This is a different, more
+precise version of the same underlying category of problem chased
+across this whole saga (Windows' native combobox doing something
+unexpected in direct response to a synchronous, key-event-driven
+`Popup()` call) -- but this time backed by the actual mechanism in
+wxWidgets' own code, not inference from timing alone.
+
+Fixed: the Down-arrow/Enter fallback in `OnComboKeyDown` no longer
+calls `m_combo->Popup()` synchronously. It now starts the same 60ms
+`wxTimer` already used elsewhere in this file, deferring the call to
+a later moment. This specific call had never actually been deferred
+before -- every previous deferral attempt (`CallAfter()`, the 60ms
+timer) targeted `BeginEdit()`'s own auto-popup-on-the-triggering-
+keystroke, a different code path entirely; this fallback, added
+several rounds ago specifically to be a "genuinely separate, later
+key event," was always called synchronously and had never been
+suspected as needing the same treatment until this log made the
+mechanism visible.
+
+Not touched: the explicit `Dismiss()` call added to `EndEdit()` for
+the (confirmed-fixed) macOS bug. Worth noting for the record: the base
+class's own `OnComboCloseUp` mechanism may make that call partially
+redundant now, on platforms where `CLOSEUP` reliably fires on a
+keyboard-driven selection -- but `Dismiss()` on an already-closed
+popup is a safe no-op, and macOS's own fix is confirmed working, so
+this was left alone rather than risk it while chasing a different,
+Windows-specific problem.
+
+Also worth flagging, not yet addressed: a real, reported side issue
+from the same test session -- after selecting a value from an open
+dropdown, keyboard focus moves off the just-edited row entirely
+(Tab doesn't restore it to a visible cell). This may well be a direct
+consequence of `DismissEditor()` returning focus to the grid's own
+selection mechanism without also ensuring the relevant cell is
+scrolled into view -- plausible given what's now understood about this
+mechanism, but not yet confirmed, and not addressed in this round.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+As always, the actual practical effect needs real testing to confirm
+-- but this round has a fundamentally different evidentiary basis than
+every previous attempt: a mechanism read directly from wxWidgets' own
+source code and matched precisely against real, detailed log data with
+a step-by-step user narrative alongside it, not a plausible-sounding
+theory about platform internals inferred from timing alone.
+
 ## The status timer fix didn't resolve it -- because a different, self-inflicted cause was also in play
 
 Direct, real report: the status timer fix from the previous entry

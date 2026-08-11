@@ -511,8 +511,24 @@ public:
     if (!m_popupOpen &&
         (evt.GetKeyCode() == WXK_DOWN || evt.GetKeyCode() == WXK_RETURN ||
          evt.GetKeyCode() == WXK_NUMPAD_ENTER)) {
-      DropdownDebugLog("  -> calling m_combo->Popup() now");
-      m_combo->Popup();
+      // Deferred via the same 60ms timer as BeginEdit()'s own attempt,
+      // rather than calling Popup() synchronously here as originally
+      // written -- confirmed via real log data as necessary: calling
+      // it synchronously reliably showed the popup opening
+      // successfully (wxEVT_COMBOBOX_DROPDOWN fired every time) but
+      // then, within the same instant, also generating a spurious
+      // wxEVT_COMBOBOX_CLOSEUP -- and wxWidgets' own
+      // wxGridCellChoiceEditor::BeginEdit() (the base class this
+      // editor builds on) already binds exactly that event to
+      // immediately end the entire cell edit via DismissEditor(), by
+      // design, so the dropdown arrow doesn't visibly stick open. That
+      // explains the exact, consistent "opens then immediately closes,
+      // edit ends" pattern seen in every real log so far. This is a
+      // genuinely new variant, not tried before: every previous
+      // deferral attempt targeted BeginEdit()'s own auto-popup
+      // specifically, never this separate, later fallback path.
+      DropdownDebugLog("  -> starting popup timer (60ms) now");
+      m_popupTimer.StartOnce(60);
       m_lastKeyWasDelete = false;
       // Deliberately not evt.Skip() here -- this key press's whole
       // job was to open the popup; letting it also fall through to
