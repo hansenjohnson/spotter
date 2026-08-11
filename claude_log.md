@@ -1199,6 +1199,49 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## The status timer fix didn't resolve it -- because a different, self-inflicted cause was also in play
+
+Direct, real report: the status timer fix from the previous entry
+changed nothing. A fresh log showed the exact same
+BeginEdit/KILL_FOCUS/SET_FOCUS/KILL_FOCUS/EndEdit cycle -- but this
+time, critically, all on the *same timestamp* as the triggering
+`BeginEdit()` call, not spaced roughly a second apart the way the
+previous log's version of this pattern was. That timing difference
+matters: a same-instant cycle isn't explained by a 1-second timer at
+all (the previous entry's fix, while likely still correct for the
+problem it targeted, wasn't the cause of *this* symptom) -- it points
+at something firing synchronously, immediately, as part of
+`BeginEdit()` itself.
+
+Root cause, on review: an explicit `m_combo->SetFocus()` call added
+two rounds ago in `BeginEdit()` on Windows, reasoned through at the
+time as "very low-risk... a focused control being focused again is a
+harmless no-op." That reasoning was wrong. A redundant `SetFocus()`
+call on Windows can still generate real `WM_KILLFOCUS`/`WM_SETFOCUS`
+messages even when the control doesn't actually change which window
+has focus, and wxGrid almost certainly watches `KILL_FOCUS` on the
+cell editor as its own signal that editing has ended and the value
+should be committed. That "low-risk" call was very likely causing
+every single edit attempt to be immediately torn down, right after it
+started -- worth being direct about: it was added as a mitigation
+attempt for a real, observed gap (the popup-opening keystroke
+sometimes not reaching `OnComboKeyDown`), but never actually confirmed
+to help with that, and turned out to actively cause a much worse,
+separate problem instead.
+
+Removed entirely, not adjusted. The focus-event logging added
+alongside it in the same round stays -- it's what actually caught
+this, and remains useful diagnostic infrastructure regardless of
+whether this specific fix is the end of this saga.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+Same honest caveat as always: the actual practical effect on Windows
+is unverified from here. This is a concrete, well-explained theory
+backed by an exact timing match in real log data (not another guess
+about wxWidgets/Windows internals in the abstract), but "concrete
+theory" and "confirmed fix" are still two different things until
+tested for real.
+
 ## Root cause found via real log data: the 1-second status timer was tearing down active cell edits
 
 A third round of diagnostic logging (with the new focus-event
