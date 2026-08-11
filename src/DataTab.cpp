@@ -413,6 +413,25 @@ public:
             "m_popupOpen=false",
             m_debugRow, m_debugCol));
       });
+      // New diagnostic: real log data showed a key press meant to open
+      // the popup sometimes never reaching OnComboKeyDown at all --
+      // EndEdit fired directly instead, with nothing logged in
+      // between, as if the key had gone to the grid (interpreted as
+      // "commit and move to the next cell") rather than this combo.
+      // These two confirm or deny whether the combo actually has
+      // reliable keyboard focus at the moments that matters.
+      m_combo->Bind(wxEVT_SET_FOCUS, [this](wxFocusEvent& evt) {
+        DropdownDebugLog(wxString::Format(
+            "wxEVT_SET_FOCUS on combo (row=%d, col=%d)", m_debugRow,
+            m_debugCol));
+        evt.Skip();
+      });
+      m_combo->Bind(wxEVT_KILL_FOCUS, [this](wxFocusEvent& evt) {
+        DropdownDebugLog(wxString::Format(
+            "wxEVT_KILL_FOCUS on combo (row=%d, col=%d)", m_debugRow,
+            m_debugCol));
+        evt.Skip();
+      });
     }
   }
 
@@ -434,6 +453,19 @@ public:
     DropdownDebugLog(wxString::Format(
         "BeginEdit(row=%d, col=%d) -- combo created, m_popupOpen=%s", row,
         col, m_popupOpen ? "true" : "false"));
+#ifdef __WXMSW__
+    // Low-risk experiment, alongside the new focus-event logging in
+    // Create() above: real log data showed a key press meant to open
+    // the popup sometimes going straight to the grid instead of this
+    // combo (EndEdit fired with no OnComboKeyDown logged in between at
+    // all), consistent with the combo not yet reliably having
+    // keyboard focus at that moment, even though the base class's own
+    // BeginEdit() should already be setting it. An explicit,
+    // redundant SetFocus() call here is very low-risk (a focused
+    // control being focused again is a harmless no-op) regardless of
+    // whether it actually fixes anything.
+    if (m_combo) m_combo->SetFocus();
+#endif
 #ifndef __WXMSW__
     // Delayed via a real, short wall-clock timer (60ms) rather than
     // CallAfter() alone -- confirmed necessary on Windows for an

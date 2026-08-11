@@ -1199,6 +1199,55 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Second round of diagnostic data: a genuinely new theory (focus, not timing)
+
+A more targeted log, following the previous entry's specific ask,
+revealed something different from every theory so far. The repeated
+pattern:
+
+```
+BeginEdit(row=1, col=5) -- m_popupOpen=false
+EndEdit(row=1, col=5): oldval="", typed=""
+```
+
+-- happening four times in a row, with *no* `OnComboKeyDown` logged in
+between at all. Whatever key was pressed to try opening the popup
+never reached the combo's own key handler -- it went straight to
+`EndEdit`, as if the key had been delivered to the grid instead,
+which would interpret Down arrow as "commit this edit and move to the
+next cell." A fifth attempt showed Down arrow *did* reach
+`OnComboKeyDown` and successfully opened the popup that time -- but
+the very next action again skipped `OnComboKeyDown` and went straight
+to `EndEdit`. That inconsistency (sometimes reaches the combo,
+sometimes doesn't) is a different shape of problem than anything
+tried in the previous five attempts, all of which assumed the key
+reliably reached the combo and only disagreed about timing once there.
+
+New theory: the combo may not reliably have actual keyboard focus at
+the moment a second, closely-following keystroke arrives, even though
+the base class's own `BeginEdit()` should already be setting it --
+so that keystroke goes to whatever still has focus (most likely the
+grid itself) instead of the combo.
+
+Added direct diagnostic logging for this specifically:
+`wxEVT_SET_FOCUS`/`wxEVT_KILL_FOCUS` bound on the combo in `Create()`,
+so the next log will show, unambiguously, exactly when (and how
+often) the combo actually gains and loses focus relative to every
+other logged event. Also added a low-risk mitigation attempt
+alongside the logging, not instead of it: an explicit, redundant
+`m_combo->SetFocus()` call in `BeginEdit()` on Windows. Calling
+`SetFocus()` on a control that's already focused is a harmless no-op,
+so this can't make things worse regardless of whether it actually
+fixes anything -- unlike previous attempts (`wxTE_PROCESS_ENTER` in
+particular) that changed how the native control behaves in ways that
+turned out to have real side effects.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected),
+and confirmed the new focus-event logging actually fires by checking
+its own output after a local run. Next log should show directly
+whether the "focus isn't reliable" theory holds, and whether the
+explicit `SetFocus()` call happens to help.
+
 ## First real diagnostic log data: genuine progress, one specific gap identified
 
 The diagnostic logging from the previous entry paid off immediately --
