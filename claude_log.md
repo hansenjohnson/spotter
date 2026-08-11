@@ -1199,6 +1199,144 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Closing out the dropdown saga: accepted mouse-click-to-open on Windows, code review and cleanup
+
+Per direct decision: mouse-click-to-open the dropdown popup on Windows
+is accepted as final behavior, not a temporary workaround pending
+further investigation. Did a full code review of everything touched
+across this whole saga (`SearchableChoiceGridCellEditor` in
+`DataTab.cpp` specifically, plus a check of `LogWindow.cpp`/`.h` for
+the unrelated status-timer fix from earlier in the same saga) and
+removed everything that was diagnostic-only or dead as a result of
+this decision, rather than leaving debugging scaffolding in a
+"finished" codebase:
+
+- The entire `DropdownDebugLog()` file-logging function and every call
+  site (`Create()`, `BeginEdit()`, `OnComboKeyDown()`, `EndEdit()`,
+  the dropdown/closeup/focus event handlers) -- always explicitly
+  framed as temporary when it was added, and its job (getting real
+  diagnostic data instead of guessing) is done.
+- The `wxEVT_SET_FOCUS`/`wxEVT_KILL_FOCUS` bindings in `Create()` --
+  existed purely to feed that logging.
+- The `wxEVT_COMBOBOX_DROPDOWN`/`CLOSEUP` bindings and the `m_popupOpen`
+  member they maintained -- existed purely to support the Windows
+  keyboard-fallback mechanism (Down arrow/second Enter opens the
+  popup), which is being removed in this same pass since it's
+  confirmed non-functional (opens then immediately closes, same root
+  cause as auto-opening on `BeginEdit()`) and was only ever a
+  fallback for a keyboard-open mechanism no longer being pursued.
+- The `#ifdef __WXMSW__` fallback block in `OnComboKeyDown()` itself.
+- `m_debugRow`/`m_debugCol` (only fed the removed logging) and the
+  now-orphaned `wx/stdpaths.h`/`wx/file.h` includes (only needed for
+  the removed logging's file I/O -- confirmed via grep that nothing
+  else in the file uses `wxStandardPaths`/`wxFile`).
+- Rewrote `BeginEdit()`'s and `OnComboKeyDown()`'s remaining comments
+  from blow-by-blow accounts of the multi-round investigation into
+  concise explanations of the final, current design and *why* it's
+  shaped this way -- the full investigation history stays exactly
+  where it belongs, in this file, not duplicated inline in the source
+  as a wall of comments explaining several abandoned attempts.
+
+Kept, deliberately: the confirmed-working, non-Windows auto-popup
+timer (`m_popupTimer`/`OnPopupTimer`, now with a plain, short comment
+instead of the historical account of why it isn't used on Windows);
+the `EndEdit()`-based `Dismiss()` fix for the (confirmed-fixed) macOS
+"popup won't close after keyboard selection" bug; the inline
+autocomplete-as-you-type logic and its own real bug-fix history
+(genuinely still-relevant explanations of *why* the code is careful
+about exact-match choices, case normalization, and not filtering the
+dropdown list) -- none of that is debugging scaffolding, it's the
+actual, permanent feature logic.
+
+Verified: rebuilt with `-Wall -Wextra` (clean, only the same
+pre-existing vendored-header warnings as always -- nothing new from
+this cleanup), reran the full test suite (246/246, unaffected), and
+confirmed via `grep` across the entire `src/` and `test_harness/`
+trees that zero references remain to any of the removed
+logging/tracking machinery. Also confirmed no debug log file gets
+created anymore by actually running the test suite and checking.
+
+## Corrected understanding, a genuinely different mechanism tried, confirmed unusable -- and the reasonable conclusion
+
+Direct, real report: no change from the deferred-timer fix. A fresh
+log, taken specifically to test *this exact build*, showed the same
+pattern -- but with per-event, cell-coordinate-tagged logging in hand
+this time, one detail from the previous entry's theory turned out to
+be wrong: `wxEVT_COMBOBOX_CLOSEUP` never fires anywhere in the new
+log, even though it's explicitly logged whenever it does. That rules
+out the `wxGridCellChoiceEditor::OnComboCloseUp` -> `DismissEditor()`
+path as the actual trigger. What the log shows instead: a final
+`wxEVT_KILL_FOCUS` on the combo, with no `wxEVT_SET_FOCUS`
+immediately following it, right after the popup has already opened
+successfully -- and this happened with total consistency whether
+`Popup()` was called synchronously or, as of the previous round,
+deferred by 60ms. That a 60ms deferral made zero difference was itself
+informative: this was never actually a same-keystroke timing race
+the way five earlier attempts assumed. Opening the popup at all,
+however it's triggered, appears to inherently cause this focus
+handoff on Windows.
+
+Reading wxWidgets' own installed headers (not the previous entry's
+`grideditors.cpp`, but `wx/generic/grideditors.h`) turned up something
+remarkable: `wxGridCellEditorEvtHandler` (wxGrid's own internal
+per-cell-editor focus watcher) has a member specifically for this:
+
+```cpp
+// Work around the fact that a focus kill event can be sent to
+// a combobox within a set focus event.
+bool m_inSetFocus;
+```
+
+-- with a public `SetInSetFocus(bool)` setter. This is wxWidgets'
+own developers documenting and working around this *exact* failure
+mode already. Per direct request (after disclosing a real, known risk
+first -- an actual wxWidgets forum post reporting a linker error using
+`wxDynamicCast` to reach this same class), tried wrapping the deferred
+`Popup()` call with `SetInSetFocus(true)`/`SetInSetFocus(false)`,
+using native `dynamic_cast` instead of `wxDynamicCast` as a
+mitigation, reasoning that the reported failure was specific to
+wxWidgets' own custom RTTI system rather than the compiler's built-in
+one.
+
+That mitigation didn't hold up under its own local build: this
+project's own Linux build failed to *link*, with `undefined reference
+to typeinfo for wxGridCellEditorEvtHandler` -- confirming the class
+genuinely has no exported type information for external code to cast
+against, on any platform, not a Windows-specific risk as originally
+scoped. This is actually a better outcome than it sounds: the failure
+was caught locally, immediately, rather than costing a full Windows CI
+round-trip to discover the same thing. Reverted cleanly -- `OnPopupTimer()`
+is back to simply calling `Popup()` (matching the previous, deferred-
+timer entry's state), and the now-unusable `OnFocusProtectTimer()`/
+`m_focusProtectTimer` removed entirely rather than left as dead code.
+
+This closes out the direct, code-level investigation of this
+specific bug. Tally: seven distinct technical approaches attempted
+across this whole saga (synchronous `Popup()`; `CallAfter()`-deferred;
+a 60ms `wxTimer`; `wxTE_PROCESS_ENTER`; a separate-keystroke fallback;
+that same fallback deferred; and this round's `SetInSetFocus`
+wrapper), each backed by real reasoning -- the last two specifically
+grounded in wxWidgets' own source and headers, not inference -- and
+each still either failed or turned out to be structurally impossible
+to implement at all. The consistent, reliable exception across every
+single test in this whole saga: opening the popup via a mouse click on
+the dropdown arrow, then using the keyboard for everything after that
+(navigation, selection, typing-to-filter) has worked every time it was
+tried, with no exceptions logged.
+
+Given that track record, continuing to search for a keyboard-only way
+to *open* the popup on Windows doesn't seem like a good use of further
+attempts without some new, different kind of information (e.g. a real
+debugging session with a breakpoint inside wxWidgets' own
+`wxGridCellEditorEvtHandler::OnKillFocus`, which isn't something
+achievable from this text-only, Linux-only development environment).
+The reasonable path from here: treat mouse-click-to-open as a known,
+accepted Windows behavior, and keep the keyboard-only experience solid
+for everything downstream of that -- which every real log in this
+whole saga has already confirmed works.
+
+Verified: rebuilt and reran the full test suite (246/246, unaffected).
+
 ## Found the actual mechanism, in wxWidgets' own source -- not another guess
 
 A detailed, step-by-step user narrative matched against its
