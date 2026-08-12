@@ -511,8 +511,6 @@ public:
 
   bool EndEdit(int row, int col, const wxGrid* grid, const wxString& oldval,
                wxString* newval) override {
-    wxUnusedVar(row);
-    wxUnusedVar(col);
     if (!m_combo) return false;
     wxString typed = m_combo->GetValue();
     if (typed != oldval && m_allChoices.Index(typed) == wxNOT_FOUND) {
@@ -545,6 +543,33 @@ public:
     // synchronously inside a key event handler, which would run before
     // that native processing had a chance to happen.
     if (m_combo) m_combo->Dismiss();
+    // Reported bug, Windows only: after selecting a value from the
+    // dropdown popup, keyboard focus moved off the just-edited row
+    // entirely, requiring a mouse click on it to get focus back.
+    // Explicitly re-asserts the grid's cursor position, scrolls the
+    // cell into view if needed, and returns keyboard focus to the grid
+    // itself -- all things that should already happen automatically
+    // once a cell edit ends, but this project's dropdown editor takes
+    // an unusual path to get there (see BeginEdit()'s own comment):
+    // the popup closing causes a focus handoff that wxGrid's internal
+    // focus-watching treats the same as "the user clicked away
+    // entirely," which plausibly does not restore the grid's own
+    // focus/cursor the way a normal Tab/Enter commit would.
+    //
+    // Deferred via CallAfter(), not called synchronously here --
+    // this is still inside wxGrid's own commit sequence for this edit,
+    // and a hard-learned lesson from a real, earlier regression in
+    // this same file: a redundant SetFocus() call made synchronously,
+    // mid-sequence, can itself generate real focus-change messages
+    // that confuse wxGrid's own focus-watching further, rather than
+    // fixing anything. Letting this whole sequence finish first, then
+    // asserting the intended end state afterward, is the safer order.
+    wxGrid* mutableGrid = const_cast<wxGrid*>(grid);
+    mutableGrid->CallAfter([mutableGrid, row, col]() {
+      mutableGrid->SetGridCursor(row, col);
+      mutableGrid->MakeCellVisible(row, col);
+      mutableGrid->SetFocus();
+    });
     return typed != oldval;
   }
 

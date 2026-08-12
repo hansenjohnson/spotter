@@ -1199,6 +1199,51 @@ Entries are in roughly chronological order (oldest changes near the
 top, most recent near the bottom), each written at the time that
 change was made.
 
+## Attempted fix: focus jumping off the row after a dropdown selection (Windows)
+
+Per direct request, addressed the separate issue flagged (but not yet
+fixed) during the previous round's cleanup: after selecting a value
+from the dropdown popup, keyboard focus moved off the just-edited row
+entirely, requiring a mouse click on it to get focus back.
+
+Reasoning, not directly confirmed via new diagnostic data this round:
+this project's dropdown editor's popup-closing sequence causes a focus
+handoff that wxGrid's own internal focus-watching treats the same as
+"the user clicked away from the grid entirely" (the same underlying
+mechanism identified in the "won't open via keyboard" saga -- see
+those entries for the fuller investigation). That code path plausibly
+doesn't restore the grid's own cursor position/focus the way a normal
+Tab/Enter-driven commit would, since it's designed to handle a
+genuinely different situation (focus actually leaving the whole grid,
+not a transient, internal popup-closing handoff).
+
+Fix: `EndEdit()` now explicitly re-asserts `SetGridCursor()`,
+`MakeCellVisible()`, and `SetFocus()` on the grid, for the exact
+row/column just edited. Deferred via `CallAfter()`, not called
+synchronously -- a direct, hard-learned lesson from the earlier
+`BeginEdit()` `SetFocus()` regression in this same file: a redundant
+`SetFocus()` call made synchronously, still inside wxGrid's own active
+commit sequence, previously turned out to generate real focus-change
+messages that confused wxGrid's own focus-watching further rather than
+fixing anything. Letting the whole sequence finish first, then
+asserting the intended end state afterward, is the safer order this
+time. `row`/`col` (previously marked `wxUnusedVar` in this function,
+now genuinely used) came already-available as `EndEdit()`'s own
+parameters -- no new state needed to track them.
+
+Verified: rebuilt with `-Wall -Wextra` (clean) and reran the full test
+suite (246/246, unaffected). Honest status: this is a reasoned attempt
+grounded in the same mechanism already confirmed for the related,
+now-closed "won't open via keyboard" issue, but not verified against
+new diagnostic data specific to *this* symptom the way most fixes in
+this saga eventually were before being trusted -- this project's own
+track record on Windows-specific dropdown/focus fixes has been mixed
+enough that this should be tested for real, not assumed correct. If it
+doesn't resolve it, the same targeted-logging approach used throughout
+this saga (temporary, cell-coordinate-tagged file logging around grid
+focus events and cursor position) is the natural next step, not
+another guess.
+
 ## Closing out the dropdown saga: accepted mouse-click-to-open on Windows, code review and cleanup
 
 Per direct decision: mouse-click-to-open the dropdown popup on Windows
